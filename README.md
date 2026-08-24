@@ -1,5 +1,7 @@
 # izi-ledger
 
+[![CI](https://github.com/ChristoPy/izi-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/ChristoPy/izi-ledger/actions/workflows/ci.yml)
+
 Double-entry, zero-sum, hash-chained ledgers on SQLite — with strong consistency,
 idempotency and crash safety built in. Works on **Node** and **Bun**, no native
 build step required.

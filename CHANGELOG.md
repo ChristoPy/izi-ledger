@@ -35,5 +35,5 @@ First release.
 - `verify()` re-hashes and re-links the chain, whole ledger or one wallet.
 - Dual ESM and CommonJS builds with separate type declarations for each.
 
-[Unreleased]: https://github.com/OWNER/izi-ledger/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/izi-ledger/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.1.0

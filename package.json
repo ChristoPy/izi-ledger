@@ -13,6 +13,15 @@
     "balance"
   ],
   "license": "MIT",
+  "author": "Christopher Ribeiro (https://github.com/ChristoPy)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristoPy/izi-ledger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChristoPy/izi-ledger/issues"
+  },
+  "homepage": "https://github.com/ChristoPy/izi-ledger#readme",
   "type": "module",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
