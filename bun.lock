@@ -9,7 +9,7 @@
         "@types/better-sqlite3": "^7.6.11",
         "@types/bun": "^1.1.14",
         "@types/node": "^22.10.0",
-        "better-sqlite3": "^11.7.0",
+        "better-sqlite3": "^11.10.0",
         "typescript": "^5.7.2",
       },
       "peerDependencies": {
@@ -20,6 +20,10 @@
       ],
     },
   },
+  "trustedDependencies": [
+    "better-sqlite3",
+    "@biomejs/biome",
+  ],
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.5.10", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.10", "@biomejs/cli-darwin-x64": "2.5.10", "@biomejs/cli-linux-arm64": "2.5.10", "@biomejs/cli-linux-arm64-musl": "2.5.10", "@biomejs/cli-linux-x64": "2.5.10", "@biomejs/cli-linux-x64-musl": "2.5.10", "@biomejs/cli-win32-arm64": "2.5.10", "@biomejs/cli-win32-x64": "2.5.10" }, "bin": { "biome": "bin/biome" } }, "sha512-WRKXARA3kTuiV5sxqTpobJ/I0MVd4vk3pOL6wnp5az4LntFIhWTj1RWZq3DI9PCEN3lXcqy7p5aqUHzvq8AXyQ=="],
 
