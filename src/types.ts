@@ -3,6 +3,66 @@ import type { DriverName } from './driver/types.js'
 /** Arbitrary JSON-serialisable context attached to a wallet or a movement. */
 export type Metadata = Record<string, unknown>
 
+/**
+ * Produces a detached signature over the bytes it is handed.
+ *
+ * Deliberately an interface rather than a private key: the whole point of
+ * signing checkpoints is that an auditor can verify them without holding
+ * anything secret, which only pays off if the secret can live somewhere the
+ * application cannot read — a KMS, an HSM, a separate signing service. Pass
+ * `ed25519Signer` from `izi-ledger/signing` when a local key is enough.
+ */
+export interface Signer {
+  keyId: string
+  /** Only ed25519 is understood by the bundled verifier. Default: `'ed25519'`. */
+  algorithm?: 'ed25519'
+  sign(payload: Uint8Array): Uint8Array | Promise<Uint8Array>
+}
+
+export interface CheckpointSignature {
+  algorithm: string
+  keyId: string
+  /** Base64. */
+  value: string
+}
+
+/**
+ * A compact commitment to the whole ledger at one point in its history.
+ *
+ * Published somewhere the ledger's operators do not control, it is what turns
+ * "tamper-evident to us" into "tamper-evident to a third party": once this is
+ * out there, no later rewrite of the book can be made consistent with it.
+ */
+export interface Checkpoint {
+  version: string
+  /** Identifies which ledger this describes, so a swapped file is detectable. */
+  ledgerId: string
+  /** Last movement covered. `0` for a checkpoint of an empty ledger. */
+  seq: number
+  headHash: string | null
+  movementCount: number
+  /** Sum of every movement per currency. Always 0 in a healthy ledger. */
+  totals: Record<string, number>
+  timestamp: number
+  /** Hash of the previous checkpoint, so a missing one is visible. */
+  previousCheckpoint: string | null
+  hash: string
+  signature: CheckpointSignature | null
+}
+
+export interface VerifyOptions {
+  /** Check just this wallet's chain instead of the whole ledger. */
+  walletId?: string
+  /**
+   * Previously published checkpoints. Each one must still be reproducible from
+   * the ledger as it stands, which is what catches a consistent rewrite of the
+   * entire history — the rewrite cannot reproduce an anchor it never saw.
+   */
+  anchors?: Checkpoint[]
+  /** Public keys by key id. Anchors carrying a signature are verified against these. */
+  publicKeys?: Record<string, string>
+}
+
 export interface LedgerOptions {
   /** Database file path. Defaults to `:memory:`. */
   path?: string
@@ -25,6 +85,8 @@ export interface LedgerOptions {
   verifyOnOpen?: boolean
   /** Clock injection point for deterministic tests. Defaults to `Date.now`. */
   now?: () => number
+  /** Signs checkpoints as they are produced. Omit to emit them unsigned. */
+  signer?: Signer
 }
 
 export interface CreateWalletOptions {
@@ -118,12 +180,19 @@ export interface IntegrityIssue {
   seq: number | null
   walletId: string | null
   reason: string
+  /**
+   * Which check produced this. Lets a report say which part failed instead of
+   * marking everything red because something did.
+   */
+  category: 'chain' | 'anchor' | 'signature'
 }
 
 export interface VerifyResult {
   ok: boolean
   /** Number of movements walked. */
   checked: number
+  /** Number of anchors checked, when any were supplied. */
+  anchorsChecked?: number
   issues: IntegrityIssue[]
 }
 
@@ -153,8 +222,16 @@ export interface Ledger {
   ): Promise<TransactionResult>
   getTransaction(idempotencyKeyOrTxId: string): Promise<TransactionResult | null>
   listMovements(options?: ListMovementsOptions): Promise<Movement[]>
-  /** Re-hash and re-link the chain. Pass a wallet id to check just that wallet. */
-  verify(walletId?: string): Promise<VerifyResult>
+  /** Re-hash and re-link the chain. Pass a wallet id, or options with anchors. */
+  verify(walletIdOrOptions?: string | VerifyOptions): Promise<VerifyResult>
+  /**
+   * Commit to the ledger's current state. Store the result somewhere the
+   * ledger's operators do not control, then feed it back through
+   * `verify({ anchors })` or the `izi-ledger audit` command.
+   */
+  checkpoint(): Promise<Checkpoint>
+  /** Checkpoints this ledger has produced, oldest first. */
+  listCheckpoints(): Promise<Checkpoint[]>
   stats(): Promise<LedgerStats>
   close(): Promise<void>
   readonly closed: boolean

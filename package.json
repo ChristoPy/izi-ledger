@@ -10,7 +10,11 @@
     "bun",
     "idempotency",
     "hash-chain",
-    "balance"
+    "balance",
+    "audit",
+    "tamper-evident",
+    "checkpoint",
+    "ed25519"
   ],
   "license": "MIT",
   "author": "Christopher Ribeiro <christo_campiglia@hotmail.com> (https://github.com/ChristoPy)",
@@ -39,7 +43,32 @@
       },
       "default": "./dist/esm/index.js"
     },
+    "./signing": {
+      "import": {
+        "types": "./dist/esm/signing.d.ts",
+        "default": "./dist/esm/signing.js"
+      },
+      "require": {
+        "types": "./dist/cjs/signing.d.ts",
+        "default": "./dist/cjs/signing.js"
+      },
+      "default": "./dist/esm/signing.js"
+    },
+    "./audit": {
+      "import": {
+        "types": "./dist/esm/audit.d.ts",
+        "default": "./dist/esm/audit.js"
+      },
+      "require": {
+        "types": "./dist/cjs/audit.d.ts",
+        "default": "./dist/cjs/audit.js"
+      },
+      "default": "./dist/esm/audit.js"
+    },
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "izi-ledger": "./dist/esm/bin.js"
   },
   "files": [
     "dist",
@@ -62,7 +91,8 @@
     "test:drivers": "node scripts/test-all-drivers.mjs",
     "example": "bun run examples/payments.ts",
     "check": "bun run lint && bun run typecheck && bun test",
-    "prepublishOnly": "bun run lint && bun run typecheck && bun test && bun run build"
+    "prepublishOnly": "bun run lint && bun run typecheck && bun test && bun run build",
+    "example:audit": "bun run examples/audit.ts"
   },
   "peerDependencies": {
     "better-sqlite3": ">=9"

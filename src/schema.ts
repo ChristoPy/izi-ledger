@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import type { Driver } from './driver/index.js'
 import { SchemaVersionMismatchError } from './errors.js'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -45,6 +46,18 @@ CREATE TABLE IF NOT EXISTS movements (
   metadata         TEXT
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS checkpoints (
+  seq                 INTEGER PRIMARY KEY,
+  ledger_id           TEXT    NOT NULL,
+  head_hash           TEXT,
+  movement_count      INTEGER NOT NULL,
+  totals              TEXT    NOT NULL,
+  timestamp           INTEGER NOT NULL,
+  previous_checkpoint TEXT,
+  hash                TEXT    NOT NULL UNIQUE,
+  signature           TEXT
+) STRICT;
+
 CREATE INDEX IF NOT EXISTS movements_wallet_seq ON movements (wallet_id, seq);
 CREATE INDEX IF NOT EXISTS movements_tx         ON movements (tx_id);
 CREATE UNIQUE INDEX IF NOT EXISTS movements_wallet_pos ON movements (wallet_id, wallet_seq);
@@ -78,6 +91,11 @@ export function applySchema(driver: Driver): void {
       insert.run('last_seq', '0')
       insert.run('head_hash', null)
       insert.run('last_timestamp', '0')
+      // Stable identity for this book. A checkpoint carries it so an auditor
+      // can tell that the file in front of them is the ledger the anchors
+      // describe, rather than a different one that happens to verify.
+      insert.run('ledger_id', randomUUID())
+      insert.run('checkpoint_head', null)
     } else {
       const found = Number(row.value)
       if (found !== SCHEMA_VERSION) {
