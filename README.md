@@ -39,7 +39,7 @@ Zero runtime dependencies. The SQLite driver is picked at runtime:
 | --- | --- | --- |
 | Bun | `bun:sqlite` | no |
 | Node ≥ 22.5 | `node:sqlite` (built-in) | no |
-| Node 20 / 22.0–22.4 | `better-sqlite3` | `npm i better-sqlite3` (optional peer) |
+| Node 20 / 22.0–22.4 | `better-sqlite3` | `npm i better-sqlite3@^12` (optional peer) |
 
 Force one with `ledger({ driver: 'node:sqlite' })` or `IZI_LEDGER_DRIVER=node:sqlite`.
 `availableDrivers()` reports what the current runtime can load.
@@ -48,6 +48,11 @@ Two things worth knowing: Node still prints an `ExperimentalWarning` for its
 built-in `node:sqlite`, and `better-sqlite3` is a native addon that Bun cannot
 load today — which is exactly why the driver is chosen at runtime instead of
 being a hard dependency.
+
+`better-sqlite3` must be `>=12`. Version 11 declares no `engines` field, so it
+installs on Node 24 and then aborts inside its own destructor once the Node
+environment has been torn down. Version 12 supports Node 20 through 26, which
+covers this library's entire supported range.
 
 ## Model
 
