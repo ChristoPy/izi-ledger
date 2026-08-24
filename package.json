@@ -1,6 +1,6 @@
 {
   "name": "izi-ledger",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Double-entry, zero-sum, hash-chained ledger on SQLite. Strong consistency, idempotency and crash safety. Works on Node and Bun.",
   "keywords": [
     "ledger",

@@ -12,6 +12,18 @@ because it makes existing database files unreadable.
 
 Nothing yet.
 
+## [0.2.1] — 2026-08-24
+
+### Fixed
+
+- Documentation only; no code changes. The README had drifted from the API
+  after checkpoints landed: `verify()` was still documented as taking only a
+  wallet id, `checkpoint()` and `listCheckpoints()` were missing from the
+  method table, `signer` was missing from the options, and the `verify()`
+  example showed an issue without its `category`. The paragraph on what
+  verification detects now points at the checkpoint section rather than ending
+  on the list of things it catches, since a full rewrite is not one of them.
+
 ## [0.2.0] — 2026-08-24
 
 ### Added
@@ -61,6 +73,7 @@ First release.
 - `verify()` re-hashes and re-links the chain, whole ledger or one wallet.
 - Dual ESM and CommonJS builds with separate type declarations for each.
 
-[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.1.0
