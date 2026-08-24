@@ -1,7 +1,6 @@
-export { ledger, ledger as createLedger } from './ledger.js'
+export { canonicalJson, HASH_VERSION, movementHash } from './canonical.js'
 export { availableDrivers } from './driver/index.js'
-export { SCHEMA_VERSION } from './schema.js'
-export { canonicalJson, movementHash, HASH_VERSION } from './canonical.js'
+export type { DriverName } from './driver/types.js'
 export {
   CurrencyMismatchError,
   DriverUnavailableError,
@@ -12,13 +11,14 @@ export {
   InvalidArgumentError,
   LedgerClosedError,
   LedgerError,
+  type LedgerErrorCode,
   SchemaVersionMismatchError,
   UnbalancedMovementError,
   WalletAlreadyExistsError,
   WalletNotFoundError,
-  type LedgerErrorCode,
 } from './errors.js'
-export type { DriverName } from './driver/types.js'
+export { ledger, ledger as createLedger } from './ledger.js'
+export { SCHEMA_VERSION } from './schema.js'
 export type {
   AddMovementOptions,
   CreateWalletOptions,

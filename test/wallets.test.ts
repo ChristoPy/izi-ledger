@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { InvalidArgumentError, WalletAlreadyExistsError, WalletNotFoundError } from '../src/index.js'
+import {
+  InvalidArgumentError,
+  WalletAlreadyExistsError,
+  WalletNotFoundError,
+} from '../src/index.js'
 import { cleanup, openLedger } from './helpers.js'
 
 afterEach(cleanup)
@@ -54,9 +58,9 @@ describe('createWallet', () => {
       // @ts-expect-error runtime guard
       book.createWallet({ id: 'meta', metadata: [1, 2] }),
     ).rejects.toThrow(InvalidArgumentError)
-    await expect(
-      book.createWallet({ id: 'meta', metadata: { bad: Number.NaN } }),
-    ).rejects.toThrow(InvalidArgumentError)
+    await expect(book.createWallet({ id: 'meta', metadata: { bad: Number.NaN } })).rejects.toThrow(
+      InvalidArgumentError,
+    )
   })
 })
 

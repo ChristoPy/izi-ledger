@@ -11,8 +11,9 @@ import { after, describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 const dist = pathToFileURL(join(process.cwd(), 'dist/esm/index.js')).href
-const { ledger, availableDrivers, IdempotencyConflictError, InsufficientFundsError } =
-  await import(dist)
+const { ledger, availableDrivers, IdempotencyConflictError, InsufficientFundsError } = await import(
+  dist
+)
 
 const dirs = []
 function tempDb() {
@@ -200,8 +201,20 @@ describe('published build', () => {
     await book.close()
   })
 
-  test('type declarations are shipped', async () => {
-    const { existsSync } = await import('node:fs')
+  test('both module systems ship their own declarations', async () => {
+    const { existsSync, readFileSync } = await import('node:fs')
+    // A .d.ts under dist/cjs is read as CommonJS types because that folder is
+    // marked { "type": "commonjs" } — which is what keeps `require()` callers
+    // from resolving ESM declarations for a CJS file.
     assert.ok(existsSync(join(process.cwd(), 'dist/esm/index.d.ts')))
+    assert.ok(existsSync(join(process.cwd(), 'dist/cjs/index.d.ts')))
+    assert.equal(
+      JSON.parse(readFileSync(join(process.cwd(), 'dist/cjs/package.json'), 'utf8')).type,
+      'commonjs',
+    )
+    assert.equal(
+      JSON.parse(readFileSync(join(process.cwd(), 'dist/esm/package.json'), 'utf8')).type,
+      'module',
+    )
   })
 })

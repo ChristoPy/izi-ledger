@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { InsufficientFundsError, LedgerClosedError, WalletAlreadyExistsError } from '../src/index.js'
+import {
+  InsufficientFundsError,
+  LedgerClosedError,
+  WalletAlreadyExistsError,
+} from '../src/index.js'
 import { cleanup, openLedger, payment, paymentLedger, tempDbPath } from './helpers.js'
 
 afterEach(cleanup)

@@ -234,11 +234,19 @@ try {
 
 ```sh
 bun install
-bun test            # full suite on bun:sqlite
-bun run typecheck
-bun run build       # dual ESM + CJS output with .d.ts
-bun run test:drivers # the suite, then Node conformance on node:sqlite + better-sqlite3
+bun run check         # lint + typecheck + the full suite
+bun run example       # the runnable payments example
+bun run test:drivers  # the suite, then the built package on Node's two drivers
+bun run build         # dual ESM + CJS output, with declarations for each
 ```
+
+CI runs lint and typecheck, the Bun suite on Linux and macOS, the Node suite on
+20/22/24, and packaging checks (`publint` and `are-the-types-wrong`) against the
+built tarball.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the invariants a change has to keep
+holding, and [SECURITY.md](SECURITY.md) for what the hash chain does and does
+not protect against.
 
 ## License
 

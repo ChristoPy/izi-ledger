@@ -2,8 +2,8 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ledger } from '../src/index.js'
 import type { Ledger, LedgerOptions } from '../src/index.js'
+import { ledger } from '../src/index.js'
 
 const dirs: string[] = []
 const open: Ledger[] = []

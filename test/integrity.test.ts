@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { IntegrityError, WalletNotFoundError, ledger } from '../src/index.js'
+import { IntegrityError, ledger, WalletNotFoundError } from '../src/index.js'
 import { cleanup, openLedger, payment, raw, tempDbPath } from './helpers.js'
 
 afterEach(cleanup)
@@ -121,7 +121,9 @@ describe('verify — tamper detection', () => {
   test('detects a re-pointed prevHash', async () => {
     const path = await sealedLedger()
     const result = await verifyAfter(path, (db) => {
-      db.run(`UPDATE movements SET prev_hash = (SELECT hash FROM movements WHERE seq = 1) WHERE seq = 4`)
+      db.run(
+        `UPDATE movements SET prev_hash = (SELECT hash FROM movements WHERE seq = 1) WHERE seq = 4`,
+      )
     })
     expect(result.ok).toBe(false)
     expect(result.issues.some((i) => i.reason.includes('Broken global chain'))).toBe(true)
@@ -188,8 +190,9 @@ describe('verify — tamper detection', () => {
 
   test('the idempotency key is not duplicated onto movement rows', async () => {
     const path = await sealedLedger(1)
-    const columns = raw(path, (db) =>
-      db.query('PRAGMA table_info(movements)').all() as Array<{ name: string }>,
+    const columns = raw(
+      path,
+      (db) => db.query('PRAGMA table_info(movements)').all() as Array<{ name: string }>,
     )
     expect(columns.map((c) => c.name)).not.toContain('idempotency_key')
     // It still reaches the caller, rejoined from the transaction.

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { cleanup, openLedger, payment, raw, tempDbPath } from './helpers.js'
 
 afterEach(cleanup)
@@ -127,8 +128,10 @@ describe('crash safety', () => {
   test('a SIGKILL mid-write leaves a consistent, verifiable ledger', async () => {
     const path = tempDbPath()
     const child = Bun.spawn(
-      ['bun', 'run', new URL('./fixtures/crash-writer.ts', import.meta.url).pathname, path],
-      { cwd: new URL('..', import.meta.url).pathname, stdout: 'pipe', stderr: 'pipe' },
+      // fileURLToPath, not URL.pathname: the latter is percent-encoded and keeps
+      // a leading slash on Windows drive letters.
+      ['bun', 'run', fileURLToPath(new URL('./fixtures/crash-writer.ts', import.meta.url)), path],
+      { cwd: fileURLToPath(new URL('..', import.meta.url)), stdout: 'pipe', stderr: 'pipe' },
     )
 
     // Wait until a handful of transactions have definitely committed, then pull
@@ -136,7 +139,10 @@ describe('crash safety', () => {
     let committed = 0
     const decoder = new TextDecoder()
     for await (const chunk of child.stdout as ReadableStream<Uint8Array>) {
-      committed += decoder.decode(chunk).split('\n').filter((l) => l.startsWith('committed')).length
+      committed += decoder
+        .decode(chunk)
+        .split('\n')
+        .filter((l) => l.startsWith('committed')).length
       if (committed >= 8) break
     }
     child.kill('SIGKILL')

@@ -257,7 +257,14 @@ describe('input validation', () => {
 
   test('rejects non-integer, unsafe and non-numeric amounts', async () => {
     const book = await paymentLedger()
-    const bad = [10.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53, -0, '100' as unknown as number]
+    const bad = [
+      10.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      2 ** 53,
+      -0,
+      '100' as unknown as number,
+    ]
     for (const amount of bad) {
       await expect(
         book.addMovement(

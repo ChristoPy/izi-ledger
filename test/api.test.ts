@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import defaultExport, {
+  availableDrivers,
+  createLedger,
   DriverUnavailableError,
   InvalidArgumentError,
   LedgerError,
+  ledger,
   SCHEMA_VERSION,
   SchemaVersionMismatchError,
-  availableDrivers,
-  createLedger,
-  ledger,
 } from '../src/index.js'
 import { cleanup, openLedger, payment, paymentLedger, raw, tempDbPath } from './helpers.js'
 
@@ -29,7 +29,9 @@ describe('listMovements', () => {
 
   test('filters by wallet, transaction and idempotency key', async () => {
     const book = await seeded()
-    expect((await book.listMovements({ walletId: 'fees' })).map((m) => m.amount)).toEqual([250, 100])
+    expect((await book.listMovements({ walletId: 'fees' })).map((m) => m.amount)).toEqual([
+      250, 100,
+    ])
     expect(await book.listMovements({ idempotencyKey: 'p2' })).toHaveLength(3)
     const tx = (await book.getTransaction('p1'))!
     expect(await book.listMovements({ txId: tx.id })).toHaveLength(3)
@@ -39,7 +41,9 @@ describe('listMovements', () => {
     const book = await seeded()
     expect((await book.listMovements({ limit: 2 })).map((m) => m.seq)).toEqual([1, 2])
     expect((await book.listMovements({ afterSeq: 4 })).map((m) => m.seq)).toEqual([5, 6])
-    expect((await book.listMovements({ order: 'desc', limit: 2 })).map((m) => m.seq)).toEqual([6, 5])
+    expect((await book.listMovements({ order: 'desc', limit: 2 })).map((m) => m.seq)).toEqual([
+      6, 5,
+    ])
   })
 
   test('paginates a wallet with a cursor', async () => {

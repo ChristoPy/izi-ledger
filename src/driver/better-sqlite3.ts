@@ -16,7 +16,10 @@ interface BetterDatabase {
 export async function createBetterSqlite3Driver(options: DriverOptions): Promise<Driver> {
   const mod = (await dynamicImport('better-sqlite3')) as {
     default?: new (path: string, opts?: Record<string, unknown>) => BetterDatabase
-  } & (new (path: string, opts?: Record<string, unknown>) => BetterDatabase)
+  } & (new (
+    path: string,
+    opts?: Record<string, unknown>,
+  ) => BetterDatabase)
   const Database = (mod.default ?? mod) as new (
     path: string,
     opts?: Record<string, unknown>,

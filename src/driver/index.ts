@@ -26,8 +26,8 @@ function defaultOrder(): DriverName[] {
 }
 
 function envDriver(): DriverName | undefined {
-  const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-    ?.IZI_LEDGER_DRIVER
+  const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env?.IZI_LEDGER_DRIVER
   if (!raw) return undefined
   if (raw in FACTORIES) return raw as DriverName
   throw new DriverUnavailableError(

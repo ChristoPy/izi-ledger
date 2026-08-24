@@ -2,7 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { addExact, assertAmount } from './amount.js'
 import { BalanceCache } from './cache.js'
 import { canonicalJson, movementHash, requestFingerprint } from './canonical.js'
-import { resolveDriver, type Driver, type SqlParam, type SqlRow, type Statement } from './driver/index.js'
+import {
+  type Driver,
+  resolveDriver,
+  type SqlParam,
+  type SqlRow,
+  type Statement,
+} from './driver/index.js'
 import {
   CurrencyMismatchError,
   IdempotencyConflictError,
@@ -49,8 +55,7 @@ const VERIFY_CHUNK = 1_000
  * protect the key: rewriting it breaks the hash of every movement in that
  * transaction.
  */
-const MOVEMENT_SELECT =
-  `SELECT m.seq, m.tx_id, m.wallet_id, m.currency, m.amount, m.balance, m.timestamp,
+const MOVEMENT_SELECT = `SELECT m.seq, m.tx_id, m.wallet_id, m.currency, m.amount, m.balance, m.timestamp,
           m.hash, m.prev_hash, m.prev_wallet_hash, m.wallet_seq, m.metadata,
           t.idempotency_key
      FROM movements m JOIN transactions t ON t.id = m.tx_id`
@@ -254,7 +259,13 @@ class LedgerImpl implements Ledger {
         this.sql(
           `INSERT INTO wallets (id, currency, allow_negative, balance, movement_count, head_hash, metadata, created_at)
            VALUES (?, ?, ?, 0, 0, NULL, ?, ?)`,
-        ).run(id, currency, spec.allowNegative ? 1 : 0, metadata ? canonicalJson(metadata) : null, createdAt)
+        ).run(
+          id,
+          currency,
+          spec.allowNegative ? 1 : 0,
+          metadata ? canonicalJson(metadata) : null,
+          createdAt,
+        )
         this.setMeta('last_timestamp', String(createdAt))
       })
 
@@ -527,8 +538,9 @@ class LedgerImpl implements Ledger {
       this.assertOpen()
       this.syncDataVersion()
       const row =
-        this.sql('SELECT * FROM transactions WHERE idempotency_key = ?').get(idempotencyKeyOrTxId) ??
-        this.sql('SELECT * FROM transactions WHERE id = ?').get(idempotencyKeyOrTxId)
+        this.sql('SELECT * FROM transactions WHERE idempotency_key = ?').get(
+          idempotencyKeyOrTxId,
+        ) ?? this.sql('SELECT * FROM transactions WHERE id = ?').get(idempotencyKeyOrTxId)
       return row ? this.buildTransactionResult(row, false) : null
     })
   }
@@ -561,7 +573,9 @@ class LedgerImpl implements Ledger {
         `${MOVEMENT_SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}` +
         ` ORDER BY m.seq ${order} LIMIT ?`
       params.push(limit)
-      return this.sql(sql).all(...params).map(rowToMovement)
+      return this.sql(sql)
+        .all(...params)
+        .map(rowToMovement)
     })
   }
 
@@ -752,7 +766,11 @@ class LedgerImpl implements Ledger {
         continue
       }
       const fingerprint = requestFingerprint(
-        movements.map((m) => ({ walletId: m.walletId, amount: m.amount, metadata: m.metadata ?? undefined })),
+        movements.map((m) => ({
+          walletId: m.walletId,
+          amount: m.amount,
+          metadata: m.metadata ?? undefined,
+        })),
         parseMetadata(row.metadata),
       )
       if (fingerprint !== row.request_hash) {
