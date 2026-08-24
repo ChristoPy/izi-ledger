@@ -13,7 +13,7 @@
     "balance"
   ],
   "license": "MIT",
-  "author": "Christopher Ribeiro (https://github.com/ChristoPy)",
+  "author": "Christopher Ribeiro <christo_campiglia@hotmail.com> (https://github.com/ChristoPy)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ChristoPy/izi-ledger.git"
