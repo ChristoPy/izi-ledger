@@ -3,6 +3,14 @@ import { addExact, assertAmount } from './amount.js'
 import { BalanceCache } from './cache.js'
 import { canonicalJson, movementHash, requestFingerprint } from './canonical.js'
 import {
+  CHECKPOINT_VERSION,
+  checkpointHash,
+  checkpointHashMatches,
+  checkpointPayload,
+  parseSignature,
+  serialiseSignature,
+} from './checkpoint.js'
+import {
   type Driver,
   resolveDriver,
   type SqlParam,
@@ -22,8 +30,10 @@ import {
 } from './errors.js'
 import { Mutex } from './mutex.js'
 import { applyPragmas, applySchema } from './schema.js'
+import { verifyCheckpointSignature } from './signing.js'
 import type {
   AddMovementOptions,
+  Checkpoint,
   CreateWalletOptions,
   IntegrityIssue,
   Ledger,
@@ -33,7 +43,9 @@ import type {
   Metadata,
   Movement,
   MovementInput,
+  Signer,
   TransactionResult,
+  VerifyOptions,
   VerifyResult,
   Wallet,
 } from './types.js'
@@ -99,6 +111,7 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
     defaultCurrency,
     cacheSize: opts.cacheSize ?? DEFAULTS.cacheSize,
     now,
+    signer: opts.signer,
   })
 
   if (opts.verifyOnOpen ?? DEFAULTS.verifyOnOpen) {
@@ -122,6 +135,7 @@ interface InternalOptions {
   defaultCurrency: string
   cacheSize: number
   now: () => number
+  signer?: Signer
 }
 
 interface WalletState {
@@ -581,11 +595,275 @@ class LedgerImpl implements Ledger {
 
   // ------------------------------------------------------------------- verify
 
-  verify(walletId?: string): Promise<VerifyResult> {
+  verify(walletIdOrOptions?: string | VerifyOptions): Promise<VerifyResult> {
     return this.mutex.run(() => {
       this.assertOpen()
       this.syncDataVersion()
-      return walletId === undefined ? this.verifyLedger() : this.verifyWallet(walletId)
+      const options: VerifyOptions =
+        typeof walletIdOrOptions === 'string'
+          ? { walletId: walletIdOrOptions }
+          : (walletIdOrOptions ?? {})
+
+      const result =
+        options.walletId === undefined ? this.verifyLedger() : this.verifyWallet(options.walletId)
+
+      if (!options.anchors?.length) return result
+
+      const anchorIssues = this.verifyAnchors(options.anchors, options.publicKeys ?? {})
+      return {
+        ok: result.issues.length === 0 && anchorIssues.length === 0,
+        checked: result.checked,
+        anchorsChecked: options.anchors.length,
+        issues: [...result.issues, ...anchorIssues],
+      }
+    })
+  }
+
+  /**
+   * Check the ledger against checkpoints that were published elsewhere.
+   *
+   * This is the part the hash chain alone cannot do. Anyone who can write to
+   * the file and run this library can rewrite every movement and recompute
+   * every hash, and plain verification will pass. What they cannot do is make
+   * that rewrite reproduce a commitment that left the building before they
+   * started.
+   */
+  private verifyAnchors(
+    anchors: Checkpoint[],
+    publicKeys: Record<string, string>,
+  ): IntegrityIssue[] {
+    const issues: IntegrityIssue[] = []
+    const ledgerId = this.getMeta('ledger_id')
+    const lastSeq = Number(this.getMeta('last_seq') ?? 0)
+    const known = new Set(
+      this.sql('SELECT hash FROM checkpoints')
+        .all()
+        .map((row) => row.hash as string),
+    )
+
+    for (const anchor of [...anchors].sort((a, b) => a.seq - b.seq)) {
+      const at = `checkpoint at seq ${anchor.seq}`
+
+      if (anchor.version !== CHECKPOINT_VERSION) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} has unknown version "${anchor.version}".`,
+          category: 'anchor',
+        })
+        continue
+      }
+      if (!checkpointHashMatches(anchor)) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} does not hash to the value it carries; it was altered after it was made.`,
+          category: 'anchor',
+        })
+        continue
+      }
+      if (anchor.ledgerId !== ledgerId) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} describes ledger ${anchor.ledgerId}, this file is ${ledgerId}. Wrong ledger, or the file was swapped.`,
+          category: 'anchor',
+        })
+        continue
+      }
+      if (anchor.seq > lastSeq) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} covers ${anchor.movementCount} movements but the ledger only has ${lastSeq}. History was truncated.`,
+          category: 'anchor',
+        })
+        continue
+      }
+
+      const rebuilt = this.rebuildCheckpointAt(anchor)
+      if (rebuilt === null) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} points at a movement that no longer exists.`,
+          category: 'anchor',
+        })
+        continue
+      }
+      if (rebuilt !== anchor.hash) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} cannot be reproduced from this ledger: the history up to seq ${anchor.seq} is not the history that was committed to.`,
+          category: 'anchor',
+        })
+        continue
+      }
+
+      // A link into a checkpoint this file has never heard of means one was
+      // dropped. A link the auditor simply did not keep a copy of is fine.
+      if (anchor.previousCheckpoint !== null && !known.has(anchor.previousCheckpoint)) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} follows a checkpoint this ledger has no record of. One was removed.`,
+          category: 'anchor',
+        })
+      }
+
+      // Signatures are only checked when keys were supplied. Passing no keys
+      // means "I am not auditing authorship", not "every signature is bad".
+      if (anchor.signature && Object.keys(publicKeys).length > 0) {
+        const check = verifyCheckpointSignature(anchor, publicKeys)
+        if (!check.ok) {
+          issues.push({
+            seq: anchor.seq,
+            walletId: null,
+            reason: `${at} signature check failed: ${check.reason}.`,
+            category: 'signature',
+          })
+        }
+      } else if (!anchor.signature && Object.keys(publicKeys).length > 0) {
+        issues.push({
+          seq: anchor.seq,
+          walletId: null,
+          reason: `${at} is unsigned, but public keys were supplied for verification.`,
+          category: 'anchor',
+        })
+      }
+    }
+
+    return issues
+  }
+
+  /** Recompute what a checkpoint at this anchor's position should hash to. */
+  private rebuildCheckpointAt(anchor: Checkpoint): string | null {
+    if (anchor.seq === 0) {
+      return checkpointHash(
+        checkpointPayload({
+          ledgerId: this.getMeta('ledger_id') ?? '',
+          seq: 0,
+          headHash: null,
+          movementCount: 0,
+          totals: {},
+          timestamp: anchor.timestamp,
+          previousCheckpoint: anchor.previousCheckpoint,
+        }),
+      )
+    }
+    const row = this.sql('SELECT hash FROM movements WHERE seq = ?').get(anchor.seq)
+    if (!row) return null
+    return checkpointHash(
+      checkpointPayload({
+        ledgerId: this.getMeta('ledger_id') ?? '',
+        seq: anchor.seq,
+        headHash: row.hash as string,
+        movementCount: anchor.seq,
+        totals: this.totalsUpTo(anchor.seq),
+        // The timestamp is the anchor's own; it is covered by the signature and
+        // is not something the ledger can re-derive.
+        timestamp: anchor.timestamp,
+        previousCheckpoint: anchor.previousCheckpoint,
+      }),
+    )
+  }
+
+  private totalsUpTo(seq: number): Record<string, number> {
+    const totals: Record<string, number> = {}
+    for (const row of this.sql(
+      'SELECT currency, SUM(amount) AS total FROM movements WHERE seq <= ? GROUP BY currency',
+    ).all(seq)) {
+      totals[row.currency as string] = Number(row.total)
+    }
+    return totals
+  }
+
+  // -------------------------------------------------------------- checkpoints
+
+  checkpoint(): Promise<Checkpoint> {
+    return this.mutex.run(async () => {
+      this.assertOpen()
+      this.syncDataVersion()
+
+      const ledgerId = this.getMeta('ledger_id') ?? ''
+      const seq = Number(this.getMeta('last_seq') ?? 0)
+      const headHash = this.getMeta('head_hash')
+      const previousCheckpoint = this.getMeta('checkpoint_head')
+      const timestamp = this.nextTimestamp()
+      const totals = this.totalsUpTo(seq)
+
+      const payload = checkpointPayload({
+        ledgerId,
+        seq,
+        headHash,
+        movementCount: seq,
+        totals,
+        timestamp,
+        previousCheckpoint,
+      })
+      const hash = checkpointHash(payload)
+
+      // Signing may reach a KMS, so it happens before the write transaction
+      // rather than inside it. The mutex keeps the ledger still meanwhile.
+      let signature: Checkpoint['signature'] = null
+      const signer = this.options.signer
+      if (signer) {
+        const value = await signer.sign(new TextEncoder().encode(payload))
+        signature = {
+          algorithm: signer.algorithm ?? 'ed25519',
+          keyId: signer.keyId,
+          value: Buffer.from(value).toString('base64'),
+        }
+      }
+
+      const checkpoint: Checkpoint = {
+        version: CHECKPOINT_VERSION,
+        ledgerId,
+        seq,
+        headHash,
+        movementCount: seq,
+        totals,
+        timestamp,
+        previousCheckpoint,
+        hash,
+        signature,
+      }
+
+      this.transaction(() => {
+        this.sql(
+          `INSERT INTO checkpoints
+             (seq, ledger_id, head_hash, movement_count, totals, timestamp, previous_checkpoint, hash, signature)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(seq) DO UPDATE SET
+             head_hash = excluded.head_hash, movement_count = excluded.movement_count,
+             totals = excluded.totals, timestamp = excluded.timestamp,
+             previous_checkpoint = excluded.previous_checkpoint,
+             hash = excluded.hash, signature = excluded.signature`,
+        ).run(
+          seq,
+          ledgerId,
+          headHash,
+          seq,
+          canonicalJson(totals),
+          timestamp,
+          previousCheckpoint,
+          hash,
+          serialiseSignature(signature),
+        )
+        this.setMeta('checkpoint_head', hash)
+        this.setMeta('last_timestamp', String(timestamp))
+      })
+
+      return checkpoint
+    })
+  }
+
+  listCheckpoints(): Promise<Checkpoint[]> {
+    return this.mutex.run(() => {
+      this.assertOpen()
+      this.syncDataVersion()
+      return this.sql('SELECT * FROM checkpoints ORDER BY seq').all().map(rowToCheckpoint)
     })
   }
 
@@ -617,6 +895,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Gap in the global sequence: expected seq ${expectedSeq}, found ${m.seq}.`,
+            category: 'chain',
           })
           expectedSeq = m.seq
         }
@@ -625,6 +904,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Broken global chain at seq ${m.seq}: prevHash ${describeHash(m.prevHash)} does not match the previous movement's hash ${describeHash(prevHash)}.`,
+            category: 'chain',
           })
         }
 
@@ -638,6 +918,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Wallet "${m.walletId}" changed currency mid-chain: ${state.currency} -> ${m.currency}.`,
+            category: 'chain',
           })
         }
         if (m.prevWalletHash !== state.head) {
@@ -645,6 +926,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Broken wallet chain for "${m.walletId}" at seq ${m.seq}: prevWalletHash ${describeHash(m.prevWalletHash)} does not match ${describeHash(state.head)}.`,
+            category: 'chain',
           })
         }
         const expectedWalletSeq = state.count + 1
@@ -653,6 +935,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Wallet "${m.walletId}" position mismatch at seq ${m.seq}: expected walletSeq ${expectedWalletSeq}, found ${m.walletSeq}.`,
+            category: 'chain',
           })
         }
         const expectedBalance = state.balance + m.amount
@@ -661,6 +944,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Running balance mismatch for "${m.walletId}" at seq ${m.seq}: stored ${m.balance}, recomputed ${expectedBalance}.`,
+            category: 'chain',
           })
         }
 
@@ -670,6 +954,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId: m.walletId,
             reason: `Hash mismatch at seq ${m.seq}: stored ${describeHash(m.hash)}, recomputed ${describeHash(recomputed)}.`,
+            category: 'chain',
           })
         }
 
@@ -688,6 +973,7 @@ class LedgerImpl implements Ledger {
           seq: null,
           walletId: null,
           reason: `Ledger is not zero-sum for currency "${currency}": total ${total}.`,
+          category: 'chain',
         })
       }
     }
@@ -705,6 +991,7 @@ class LedgerImpl implements Ledger {
           seq: null,
           walletId: wallet.id,
           reason: `Stored balance for "${wallet.id}" is ${wallet.balance}, movements add up to ${state.balance}.`,
+          category: 'chain',
         })
       }
       if (wallet.movementCount !== state.count) {
@@ -712,6 +999,7 @@ class LedgerImpl implements Ledger {
           seq: null,
           walletId: wallet.id,
           reason: `Stored movement count for "${wallet.id}" is ${wallet.movementCount}, found ${state.count} movements.`,
+          category: 'chain',
         })
       }
       if (wallet.headHash !== state.head) {
@@ -719,6 +1007,7 @@ class LedgerImpl implements Ledger {
           seq: null,
           walletId: wallet.id,
           reason: `Stored head hash for "${wallet.id}" does not match its last movement.`,
+          category: 'chain',
         })
       }
     }
@@ -731,6 +1020,7 @@ class LedgerImpl implements Ledger {
         seq: null,
         walletId: null,
         reason: `Ledger head hash ${describeHash(metaHead)} does not match the last movement ${describeHash(prevHash)}.`,
+        category: 'chain',
       })
     }
     const metaSeq = Number(this.getMeta('last_seq') ?? 0)
@@ -739,6 +1029,7 @@ class LedgerImpl implements Ledger {
         seq: null,
         walletId: null,
         reason: `Ledger last_seq is ${metaSeq}, last movement is at seq ${expectedSeq}.`,
+        category: 'chain',
       })
     }
 
@@ -762,6 +1053,7 @@ class LedgerImpl implements Ledger {
           seq: Number(row.seq_start),
           walletId: null,
           reason: `Transaction ${txId} claims ${Number(row.entry_count)} entries but has ${movements.length}.`,
+          category: 'chain',
         })
         continue
       }
@@ -778,6 +1070,7 @@ class LedgerImpl implements Ledger {
           seq: Number(row.seq_start),
           walletId: null,
           reason: `Transaction ${txId} no longer matches its request fingerprint.`,
+          category: 'chain',
         })
       }
     }
@@ -810,6 +1103,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId,
             reason: `Wallet "${walletId}" position mismatch at seq ${m.seq}: expected walletSeq ${walletSeq}, found ${m.walletSeq}.`,
+            category: 'chain',
           })
           walletSeq = m.walletSeq
         }
@@ -818,6 +1112,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId,
             reason: `Broken wallet chain for "${walletId}" at seq ${m.seq}: prevWalletHash ${describeHash(m.prevWalletHash)} does not match ${describeHash(head)}.`,
+            category: 'chain',
           })
         }
         const expected = balance + m.amount
@@ -826,6 +1121,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId,
             reason: `Running balance mismatch for "${walletId}" at seq ${m.seq}: stored ${m.balance}, recomputed ${expected}.`,
+            category: 'chain',
           })
         }
         const recomputed = movementHash(m)
@@ -834,6 +1130,7 @@ class LedgerImpl implements Ledger {
             seq: m.seq,
             walletId,
             reason: `Hash mismatch at seq ${m.seq}: stored ${describeHash(m.hash)}, recomputed ${describeHash(recomputed)}.`,
+            category: 'chain',
           })
         }
         balance = m.balance
@@ -847,6 +1144,7 @@ class LedgerImpl implements Ledger {
         seq: null,
         walletId,
         reason: `Stored balance for "${walletId}" is ${wallet.balance}, movements add up to ${balance}.`,
+        category: 'chain',
       })
     }
     if (wallet.headHash !== head) {
@@ -854,6 +1152,7 @@ class LedgerImpl implements Ledger {
         seq: null,
         walletId,
         reason: `Stored head hash for "${walletId}" does not match its last movement.`,
+        category: 'chain',
       })
     }
     if (wallet.movementCount !== checked) {
@@ -861,6 +1160,7 @@ class LedgerImpl implements Ledger {
         seq: null,
         walletId,
         reason: `Stored movement count for "${walletId}" is ${wallet.movementCount}, found ${checked}.`,
+        category: 'chain',
       })
     }
 
@@ -1003,4 +1303,19 @@ function assertPositiveInt(value: unknown, label: string): number {
 
 function describeHash(hash: string | null): string {
   return hash === null ? '<none>' : `${hash.slice(0, 12)}…`
+}
+
+function rowToCheckpoint(row: SqlRow): Checkpoint {
+  return {
+    version: CHECKPOINT_VERSION,
+    ledgerId: row.ledger_id as string,
+    seq: Number(row.seq),
+    headHash: (row.head_hash as string | null) ?? null,
+    movementCount: Number(row.movement_count),
+    totals: JSON.parse(String(row.totals)) as Record<string, number>,
+    timestamp: Number(row.timestamp),
+    previousCheckpoint: (row.previous_checkpoint as string | null) ?? null,
+    hash: row.hash as string,
+    signature: parseSignature(row.signature),
+  }
 }

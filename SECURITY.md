@@ -20,11 +20,21 @@ What that means in practice:
   change it. What they cannot do is change it and still have `verify()` pass.
 - **The chain does not defend itself against a full rewrite.** An attacker with
   write access and the ability to run this library can recompute every hash from
-  a forged history. If you need proof against that, anchor the head hash
-  somewhere you control — `stats().headHash` is there for exactly that, and
-  publishing it periodically turns a full rewrite into a detectable one.
-- **No signing.** Hashes are SHA-256 with no key, so they prove *consistency*,
-  not *authorship*.
+  a forged history, and plain `verify()` will pass. **Checkpoints are the answer
+  to this.** `checkpoint()` returns a signed commitment to the ledger at a point
+  in time; published somewhere the operators do not control, it cannot be
+  reproduced by a later rewrite. Feed them back through `verify({ anchors })` or
+  `izi-ledger audit`. Without published anchors, `verify()` proves only that the
+  book is self-consistent — which is exactly what a careful forger produces.
+- **Movement hashes are unsigned.** SHA-256 with no key proves *consistency*,
+  not *authorship*. Checkpoints are where signing happens, and Ed25519 was
+  chosen so that verification needs only the public half — a symmetric scheme
+  (HMAC, or encryption at rest) cannot give a third party the ability to check
+  without also giving it the ability to forge.
+- **Encryption at rest does not help here.** It defends confidentiality against
+  someone who lacks the key; every threat in this section involves someone who
+  has it. Encrypt the volume if you want it — that is orthogonal, and does not
+  cost you the choice of SQLite driver.
 - **File permissions are yours to set.** The library opens whatever path you
   give it with the process's own credentials.
 

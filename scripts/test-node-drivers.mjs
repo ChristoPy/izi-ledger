@@ -242,6 +242,62 @@ describe('published build', () => {
     await book.close()
   })
 
+  test('the checkpoint and audit subpaths resolve', async () => {
+    const { pathToFileURL: toUrl } = await import('node:url')
+    const signing = await import(toUrl(join(process.cwd(), 'dist/esm/signing.js')).href)
+    const { audit } = await import(toUrl(join(process.cwd(), 'dist/esm/audit.js')).href)
+
+    const path = tempDb()
+    const { privateKey, publicKey } = signing.generateSigningKeyPair()
+    const book = await ledger({
+      path,
+      signer: signing.ed25519Signer({ keyId: 'k1', privateKey }),
+    })
+    await book.createWallet({ id: 'a', allowNegative: true })
+    await book.createWallet('b')
+    await book.addMovement(
+      [
+        { walletId: 'a', amount: -100 },
+        { walletId: 'b', amount: 100 },
+      ],
+      'p1',
+    )
+    const anchor = await book.checkpoint()
+    assert.equal(signing.verifyCheckpointSignature(anchor, { k1: publicKey }).ok, true)
+    await book.close()
+
+    const report = await audit({ path, anchors: [anchor], publicKeys: { k1: publicKey } })
+    assert.equal(report.ok, true)
+    assert.equal(report.anchorsChecked, 1)
+    assert.equal(report.signaturesChecked, 1)
+    assert.deepEqual(report.totals, { BRL: 0 })
+  })
+
+  test('the audit command runs from the built bin', async () => {
+    const { execFileSync } = await import('node:child_process')
+    const path = tempDb()
+    const book = await ledger({ path })
+    await book.createWallet({ id: 'a', allowNegative: true })
+    await book.createWallet('b')
+    await book.addMovement(
+      [
+        { walletId: 'a', amount: -1 },
+        { walletId: 'b', amount: 1 },
+      ],
+      'p1',
+    )
+    await book.close()
+
+    const out = execFileSync(
+      process.execPath,
+      [join(process.cwd(), 'dist/esm/bin.js'), 'audit', path],
+      {
+        encoding: 'utf8',
+      },
+    )
+    assert.match(out, /VERIFIED/)
+  })
+
   test('both module systems ship their own declarations', async () => {
     const { existsSync, readFileSync } = await import('node:fs')
     // A .d.ts under dist/cjs is read as CommonJS types because that folder is
@@ -249,6 +305,10 @@ describe('published build', () => {
     // from resolving ESM declarations for a CJS file.
     assert.ok(existsSync(join(process.cwd(), 'dist/esm/index.d.ts')))
     assert.ok(existsSync(join(process.cwd(), 'dist/cjs/index.d.ts')))
+    for (const name of ['signing', 'audit']) {
+      assert.ok(existsSync(join(process.cwd(), `dist/esm/${name}.d.ts`)), `esm ${name} types`)
+      assert.ok(existsSync(join(process.cwd(), `dist/cjs/${name}.d.ts`)), `cjs ${name} types`)
+    }
     assert.equal(
       JSON.parse(readFileSync(join(process.cwd(), 'dist/cjs/package.json'), 'utf8')).type,
       'commonjs',

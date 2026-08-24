@@ -10,7 +10,27 @@ because it makes existing database files unreadable.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `checkpoint()` produces a signed, compact commitment to the ledger at a point
+  in time. Published somewhere the ledger's operators do not control, it closes
+  the one gap the hash chain cannot: someone with the file and this library can
+  rewrite every movement consistently and pass `verify()`, but cannot reproduce
+  a commitment made before the rewrite.
+- `verify({ anchors, publicKeys })` checks the ledger against those published
+  checkpoints, and `listCheckpoints()` returns the local record of them.
+- A `Signer` interface plus `ed25519Signer` and `generateSigningKeyPair`,
+  exported from `izi-ledger/signing`. Signing is an interface rather than a key
+  so the secret can live in a KMS or HSM.
+- `audit()` (`izi-ledger/audit`) and an `izi-ledger audit` command that verify a
+  ledger file from outside, needing only the file, the anchors and a public key.
+- `IntegrityIssue` now carries a `category` of `'chain' | 'anchor' |
+  'signature'`, so a report can say which part of the proof failed.
+
+### Changed
+
+- **Schema v3.** Adds a `checkpoints` table and a `ledger_id` in `meta`. Files
+  written by v2 are not readable; this is pre-1.0 and there is no migration.
 
 ## [0.1.0] — unreleased
 

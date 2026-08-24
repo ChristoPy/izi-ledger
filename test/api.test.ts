@@ -138,6 +138,6 @@ describe('schema guard', () => {
   })
 
   test('exports the schema version it speaks', () => {
-    expect(SCHEMA_VERSION).toBe(2)
+    expect(SCHEMA_VERSION).toBe(3)
   })
 })

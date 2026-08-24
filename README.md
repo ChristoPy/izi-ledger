@@ -104,6 +104,93 @@ that the ledger still nets to zero per currency. Editing a single amount with a
 doctoring a wallet's stored balance, or rewriting an idempotency key. Pass
 `verifyOnOpen: true` to run it at startup.
 
+## Checkpoints, and proving it to someone else
+
+The hash chain is tamper-**evident**, not tamper-proof. Anyone who can write to
+the file and run this library can rewrite every movement, recompute every hash
+and fingerprint, and `verify()` will pass — the chain proves internal
+consistency, not authenticity.
+
+A checkpoint is a compact commitment to the ledger at a point in time. Publish
+it somewhere the ledger's operators do not control, and a later rewrite becomes
+impossible to hide: it cannot reproduce a commitment that left the building
+before it happened.
+
+```ts
+import { ledger, ed25519Signer, generateSigningKeyPair } from 'izi-ledger'
+
+const book = await ledger({
+  path: './ledger.db',
+  signer: ed25519Signer({ keyId: 'ledger-2026-01', privateKey }),
+})
+
+const anchor = await book.checkpoint()
+// { seq, headHash, movementCount, totals: { BRL: 0 }, timestamp,
+//   previousCheckpoint, hash, signature: { algorithm, keyId, value } }
+
+await publishSomewhereYouDoNotControl(anchor)   // TSA, S3 Object Lock, the auditor
+```
+
+Feed them back to catch a rewrite:
+
+```ts
+await book.verify({ anchors: [anchor], publicKeys: { 'ledger-2026-01': publicKey } })
+```
+
+`checkpoint()` is manual on purpose — how often to commit, and where to put the
+result, are policy decisions the library should not make for you. Each
+checkpoint links to the previous one, so a missing one is visible too.
+
+### Signing
+
+`Signer` is an interface, not a private key, because the point of signing is
+that an auditor verifies with the **public** half and gains no power to forge.
+That only pays off if the secret can live somewhere the application cannot read:
+
+```ts
+signer: { keyId: 'ledger-2026-01', sign: (bytes) => kms.sign(bytes) }
+```
+
+`ed25519Signer` is the batteries-included version for a local key.
+
+### The audit command
+
+An auditor is not going to write TypeScript. The package ships a command that
+needs the file, the published checkpoints, and a public key — no application
+code, no secrets:
+
+```sh
+npx izi-ledger audit ./ledger.db \
+  --anchors anchors.json \
+  --public-key ledger-2026-01.pem
+```
+
+```
+ledger.db  ·  node:sqlite
+
+  ledger      ok      24 movements re-hashed
+  anchors     ok      3 checked
+  signatures  ok      3 verified
+  zero-sum    ok      BRL: 0
+  ledger id           a4c35862-5900-4373-9f1e-8741e9041f77
+
+VERIFIED
+```
+
+Exits 0 when it verifies, 1 when it does not, 2 on a usage error. `--json` for
+machines. Each row reports its own check, so a broken chain does not make the
+signatures look forged.
+
+Where to publish anchors, roughly in order of what they buy you:
+
+| destination | insider can rewrite? | auditor verifies alone? |
+| --- | --- | --- |
+| plain S3 bucket | yes | no |
+| S3 + Object Lock (compliance) | no | needs read access |
+| RFC 3161 timestamp authority | no | **yes, with the TSA cert alone** |
+| a public transparency log | no | yes, publicly |
+| sent straight to the auditor | no | yes |
+
 ## Idempotency
 
 `addMovement` **requires** an `idempotencyKey`, which makes every call safe to

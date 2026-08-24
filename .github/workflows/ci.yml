@@ -41,6 +41,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run example
+      - run: bun run example:audit
 
   node:
     # The driver adapter is the most fragile surface in the library: Node 20 has
