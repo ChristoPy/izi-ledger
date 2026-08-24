@@ -74,11 +74,11 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
-    "@types/better-sqlite3": "^7.6.11",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/bun": "^1.1.14",
-    "@types/node": "^22.10.0",
-    "better-sqlite3": "^11.7.0",
-    "typescript": "^5.7.2"
+    "@types/node": "^26.2.0",
+    "better-sqlite3": "^13.0.3",
+    "typescript": "^7.0.2"
   },
   "trustedDependencies": [
     "better-sqlite3",
