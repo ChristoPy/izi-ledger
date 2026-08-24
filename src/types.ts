@@ -75,7 +75,14 @@ export interface LedgerOptions {
    * crash can lose the last commits. Default: `'full'`.
    */
   durability?: 'full' | 'normal'
-  /** Default currency for `createWallet` when none is given. Default `'BRL'`. */
+  /**
+   * Currency wallets inherit when `createWallet` does not name one.
+   *
+   * There is no built-in default: a wallet created without a currency here and
+   * without one of its own is an error, not a guess. Single-currency books set
+   * this once; multi-currency books leave it unset and name the currency on
+   * every wallet, which is where it actually belongs.
+   */
   defaultCurrency?: string
   /** Max wallets kept in the in-memory balance cache. `0` disables it. Default `10_000`. */
   cacheSize?: number

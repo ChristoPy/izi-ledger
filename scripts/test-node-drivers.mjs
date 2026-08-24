@@ -73,7 +73,7 @@ console.log(`running the conformance suite against: ${drivers.join(', ')}`)
 for (const driver of drivers) {
   describe(driver, () => {
     test('records a zero-sum payment and reads balances back', async () => {
-      const book = await ledger({ driver, path: ':memory:' })
+      const book = await ledger({ driver, path: ':memory:', defaultCurrency: 'BRL' })
       await book.createWallet({ id: 'gateway', allowNegative: true })
       await book.createWallet('user:1')
       await book.createWallet('fees')
@@ -97,7 +97,7 @@ for (const driver of drivers) {
     })
 
     test('is idempotent and detects key reuse', async () => {
-      const book = await ledger({ driver, path: ':memory:' })
+      const book = await ledger({ driver, path: ':memory:', defaultCurrency: 'BRL' })
       await book.createWallet({ id: 'a', allowNegative: true })
       await book.createWallet('b')
       const entries = [
@@ -124,7 +124,12 @@ for (const driver of drivers) {
     })
 
     test('serialises concurrent writes and stays verifiable', async () => {
-      const book = await ledger({ driver, path: tempDb(), durability: 'normal' })
+      const book = await ledger({
+        driver,
+        path: tempDb(),
+        durability: 'normal',
+        defaultCurrency: 'BRL',
+      })
       await book.createWallet({ id: 'a', allowNegative: true })
       await book.createWallet('b')
       await Promise.all(
@@ -150,7 +155,7 @@ for (const driver of drivers) {
     })
 
     test('blocks negative balances and rolls the transaction back', async () => {
-      const book = await ledger({ driver, path: ':memory:' })
+      const book = await ledger({ driver, path: ':memory:', defaultCurrency: 'BRL' })
       await book.createWallet('a')
       await book.createWallet('b')
       await assert.rejects(
@@ -171,7 +176,7 @@ for (const driver of drivers) {
 
     test('persists and keeps chaining across a reopen', async () => {
       const path = tempDb()
-      const first = await ledger({ driver, path })
+      const first = await ledger({ driver, path, defaultCurrency: 'BRL' })
       await first.createWallet({ id: 'a', allowNegative: true })
       await first.createWallet('b')
       await first.addMovement(
@@ -184,7 +189,7 @@ for (const driver of drivers) {
       const head = (await first.stats()).headHash
       await first.close()
 
-      const second = await ledger({ driver, path, verifyOnOpen: true })
+      const second = await ledger({ driver, path, defaultCurrency: 'BRL', verifyOnOpen: true })
       const tx = await second.addMovement(
         [
           { walletId: 'a', amount: -100 },
@@ -200,12 +205,12 @@ for (const driver of drivers) {
 
     test('caches balances and drops the cache on an external write', async () => {
       const path = tempDb()
-      const a = await ledger({ driver, path })
+      const a = await ledger({ driver, path, defaultCurrency: 'BRL' })
       await a.createWallet({ id: 'gw', allowNegative: true })
       await a.createWallet('fees')
       assert.equal(await a.getBalance('fees'), 0)
 
-      const b = await ledger({ driver, path })
+      const b = await ledger({ driver, path, defaultCurrency: 'BRL' })
       await b.addMovement(
         [
           { walletId: 'gw', amount: -700 },
@@ -225,7 +230,7 @@ describe('published build', () => {
     const { createRequire } = await import('node:module')
     const require = createRequire(join(process.cwd(), 'package.json'))
     const cjs = require('./dist/cjs/index.js')
-    const book = await cjs.ledger({ path: ':memory:' })
+    const book = await cjs.ledger({ path: ':memory:', defaultCurrency: 'BRL' })
     await book.createWallet({ id: 'a', allowNegative: true })
     await book.createWallet('b')
     await book.addMovement(
@@ -250,6 +255,7 @@ describe('published build', () => {
     const { privateKey, publicKey } = signing.generateSigningKeyPair()
     const book = await ledger({
       path,
+      defaultCurrency: 'BRL',
       signer: signing.ed25519Signer({ keyId: 'k1', privateKey }),
     })
     await book.createWallet({ id: 'a', allowNegative: true })
@@ -275,7 +281,7 @@ describe('published build', () => {
   test('the audit command runs from the built bin', async () => {
     const { execFileSync } = await import('node:child_process')
     const path = tempDb()
-    const book = await ledger({ path })
+    const book = await ledger({ path, defaultCurrency: 'BRL' })
     await book.createWallet({ id: 'a', allowNegative: true })
     await book.createWallet('b')
     await book.addMovement(

@@ -70,7 +70,8 @@ require `better-sqlite3@>=12`.
   received goes in index 0, the fee in index 1" a single atomic fact rather than
   two writes that can drift apart.
 - **Wallets are explicit.** `createWallet` is the only way to make one, so a
-  typo in a wallet id is an error, not a new account.
+  typo in a wallet id is an error, not a new account — and its currency is
+  never guessed.
 - **Nothing is ever updated or deleted.** A refund is a new, opposite movement.
 - **Every transaction carries an idempotency key.** It is a required argument,
   not an opt-in.
@@ -270,7 +271,7 @@ const book = await ledger(options?: string | LedgerOptions)
 | `path` | `':memory:'` | database file |
 | `driver` | auto | `'bun:sqlite' \| 'node:sqlite' \| 'better-sqlite3'` |
 | `durability` | `'full'` | `'normal'` skips the per-commit fsync |
-| `defaultCurrency` | `'BRL'` | used when `createWallet` omits one |
+| `defaultCurrency` | none | currency wallets inherit; without it every wallet must name its own |
 | `cacheSize` | `10_000` | wallets kept in the balance cache; `0` disables |
 | `busyTimeoutMs` | `5_000` | wait on a locked database before failing |
 | `verifyOnOpen` | `false` | verify the whole chain at startup |
@@ -305,6 +306,22 @@ await book.createWallet({
 
 `allowNegative` is off by default, so a user wallet cannot be overdrawn by
 accident — the transaction fails with `InsufficientFundsError` and rolls back.
+
+**A currency is never invented for you.** Every wallet gets one from its own
+`currency` or from the ledger's `defaultCurrency`, and a wallet with neither is
+an error rather than a guess — putting a label on somebody's money that nobody
+chose is the kind of quiet mistake the rest of this library exists to prevent.
+
+```ts
+// single-currency book: say it once
+const book = await ledger({ path: './ledger.db', defaultCurrency: 'BRL' })
+await book.createWallet('user:1')                            // inherits BRL
+
+// multi-currency book: no default to invent, so name it every time
+const book = await ledger({ path: './ledger.db' })
+await book.createWallet({ id: 'brl:user', currency: 'BRL' })
+await book.createWallet('user:1')                            // throws
+```
 
 ### Multiple currencies
 

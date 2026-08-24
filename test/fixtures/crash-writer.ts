@@ -5,7 +5,7 @@
 import { ledger } from '../../src/index.js'
 
 const path = process.argv[2]!
-const book = await ledger({ path, durability: 'full' })
+const book = await ledger({ path, durability: 'full', defaultCurrency: 'BRL' })
 
 await book.createWallet({ id: 'gateway', allowNegative: true })
 await book.createWallet('fees')

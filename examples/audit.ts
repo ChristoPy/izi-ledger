@@ -22,6 +22,7 @@ writeFileSync(join(dir, 'ledger-2026-01.pem'), publicKey)
 
 const book = await ledger({
   path,
+  defaultCurrency: 'BRL',
   signer: ed25519Signer({ keyId: 'ledger-2026-01', privateKey }),
 })
 await book.createWallet({ id: 'external:pix', allowNegative: true })

@@ -12,6 +12,23 @@ because it makes existing database files unreadable.
 
 Nothing yet.
 
+## [0.3.0] — 2026-08-24
+
+### Changed
+
+- **Breaking: there is no built-in default currency.** `defaultCurrency` used
+  to fall back to `'BRL'`, an arbitrary choice baked into the library. A wallet
+  created with neither its own `currency` nor a ledger `defaultCurrency` now
+  throws `InvalidArgumentError` naming both ways to fix it.
+
+  Single-currency books set `defaultCurrency` once on the ledger and are
+  otherwise unchanged. Multi-currency books leave it unset and name the
+  currency on each wallet, which is where it belongs — they no longer have to
+  elect an arbitrary default that means nothing.
+
+  Existing databases are unaffected: every wallet already stores its own
+  currency, so only `createWallet` behaves differently. No schema change.
+
 ## [0.2.1] — 2026-08-24
 
 ### Fixed
@@ -73,7 +90,8 @@ First release.
 - `verify()` re-hashes and re-links the chain, whole ledger or one wallet.
 - Dual ESM and CommonJS builds with separate type declarations for each.
 
-[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.3.0
 [0.2.1]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.2.1
 [0.2.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.1.0
