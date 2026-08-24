@@ -49,6 +49,13 @@ built-in `node:sqlite`, and `better-sqlite3` is a native addon that Bun cannot
 load today — which is exactly why the driver is chosen at runtime instead of
 being a hard dependency.
 
+One sharp edge if you *force* `better-sqlite3` on Node 24 or newer: v11 aborts
+there, inside its own destructor, once the Node environment has been torn down.
+v12 fixes that but ships no Node 20 prebuild, so Node 20 installs get v11. In
+normal use this never comes up — from Node 22.5 the built-in `node:sqlite` wins
+driver resolution and the addon is never loaded. If you do force it on Node 24+,
+require `better-sqlite3@>=12`.
+
 ## Model
 
 - **Amounts are integers in the currency's minor unit** (cents). `10.5` is
