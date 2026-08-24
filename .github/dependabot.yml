@@ -7,6 +7,12 @@ updates:
     groups:
       dev-dependencies:
         patterns: ['*']
+    ignore:
+      # better-sqlite3 v13 requires Node >= 22, and the only reason this
+      # library depends on it at all is to serve Node 20, which has no
+      # built-in node:sqlite. Stay on 12.x until Node 20 is dropped.
+      - dependency-name: better-sqlite3
+        versions: ['>=13']
   - package-ecosystem: github-actions
     directory: /
     schedule:
