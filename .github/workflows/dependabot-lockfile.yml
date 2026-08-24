@@ -1,0 +1,64 @@
+name: Dependabot lockfile
+
+# Dependabot has no Bun lockfile support: it rewrites package.json and leaves
+# bun.lock pointing at the old versions. CI then runs `bun install
+# --frozen-lockfile`, which refuses a tree that disagrees with the lockfile —
+# so every npm PR fails before a single test runs. This regenerates bun.lock
+# and commits it back to the PR branch.
+#
+# pull_request_target rather than pull_request: workflows triggered by
+# Dependabot on a plain pull_request event get a read-only GITHUB_TOKEN and
+# cannot push. pull_request_target runs the workflow definition from the base
+# branch, so a PR cannot change what runs here.
+#
+# Two guards, because this pattern hands a write token to a job that checks out
+# PR code: the actor check keeps it to Dependabot, and --ignore-scripts stops
+# the updated dependencies' install scripts from executing at all. Resolving
+# and writing the lockfile does not need them.
+
+on:
+  pull_request_target:
+    paths:
+      - package.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lockfile-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # A PAT makes the push trigger CI on the new commit. GITHUB_TOKEN
+          # cannot: pushes made with it never start a workflow run, by design,
+          # so the lockfile lands but the checks stay stale on the old SHA.
+          token: ${{ secrets.LOCKFILE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: bun install --ignore-scripts
+
+      - name: Commit bun.lock if it moved
+        run: |
+          if git diff --quiet -- bun.lock; then
+            echo "bun.lock already agrees with package.json — nothing to do."
+            exit 0
+          fi
+
+          git config user.name  'dependabot[bot]'
+          git config user.email '49699333+dependabot[bot]@users.noreply.github.com'
+          git commit -m 'Regenerate bun.lock for the dependency bump' -- bun.lock
+          git push
+
+          if [ -z "${{ secrets.LOCKFILE_TOKEN }}" ]; then
+            echo "::warning::bun.lock was committed with GITHUB_TOKEN, which does not start a workflow run. Re-run CI on this PR to pick it up, or add a LOCKFILE_TOKEN secret to make this automatic."
+          fi

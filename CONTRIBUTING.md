@@ -58,6 +58,19 @@ If the change touches the driver adapter, add it to
 `scripts/test-node-drivers.mjs` too, so it runs on `node:sqlite` and
 `better-sqlite3` as well as `bun:sqlite`.
 
+## Dependabot and the lockfile
+
+Dependabot has no Bun lockfile support, so its npm PRs update `package.json`
+and leave `bun.lock` behind — which `bun install --frozen-lockfile` refuses.
+`.github/workflows/dependabot-lockfile.yml` regenerates the lockfile and commits
+it back to the PR branch.
+
+For the fix to also re-run CI, add a fine-grained personal access token with
+`contents: write` on this repository as a repository secret named
+`LOCKFILE_TOKEN`. Without it the lockfile is still committed, but pushes made
+with `GITHUB_TOKEN` never start a workflow run, so the checks have to be
+re-run by hand.
+
 ## Pull requests
 
 CI runs lint, typecheck, the Bun suite on Linux and macOS, the Node suite on
