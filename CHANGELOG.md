@@ -10,6 +10,10 @@ because it makes existing database files unreadable.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] — 2026-08-24
+
 ### Added
 
 - `checkpoint()` produces a signed, compact commitment to the ledger at a point
@@ -19,11 +23,13 @@ because it makes existing database files unreadable.
   a commitment made before the rewrite.
 - `verify({ anchors, publicKeys })` checks the ledger against those published
   checkpoints, and `listCheckpoints()` returns the local record of them.
-- A `Signer` interface plus `ed25519Signer` and `generateSigningKeyPair`,
-  exported from `izi-ledger/signing`. Signing is an interface rather than a key
-  so the secret can live in a KMS or HSM.
-- `audit()` (`izi-ledger/audit`) and an `izi-ledger audit` command that verify a
-  ledger file from outside, needing only the file, the anchors and a public key.
+- A `Signer` interface plus `ed25519Signer` and `generateSigningKeyPair`.
+  Signing is an interface rather than a key so the secret can live in a KMS
+  or HSM.
+- `audit()` and an `izi-ledger audit` command that verify a ledger file from
+  outside, needing only the file, the anchors and a public key.
+- Everything is exported from the package root. There are no subpath entries,
+  so consumers on the older `moduleResolution: node` resolve it all too.
 - `IntegrityIssue` now carries a `category` of `'chain' | 'anchor' |
   'signature'`, so a report can say which part of the proof failed.
 
@@ -32,7 +38,7 @@ because it makes existing database files unreadable.
 - **Schema v3.** Adds a `checkpoints` table and a `ledger_id` in `meta`. Files
   written by v2 are not readable; this is pre-1.0 and there is no migration.
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-08-24
 
 First release.
 
@@ -55,5 +61,6 @@ First release.
 - `verify()` re-hashes and re-links the chain, whole ledger or one wallet.
 - Dual ESM and CommonJS builds with separate type declarations for each.
 
-[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ChristoPy/izi-ledger/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ChristoPy/izi-ledger/releases/tag/v0.1.0

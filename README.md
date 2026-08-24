@@ -143,6 +143,9 @@ checkpoint links to the previous one, so a missing one is visible too.
 
 ### Signing
 
+Everything below is exported from the package root — there are no subpath
+entry points, so an older `moduleResolution: node` consumer resolves it too.
+
 `Signer` is an interface, not a private key, because the point of signing is
 that an auditor verifies with the **public** half and gains no power to forge.
 That only pays off if the secret can live somewhere the application cannot read:

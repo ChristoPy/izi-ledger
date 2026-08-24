@@ -242,10 +242,9 @@ describe('published build', () => {
     await book.close()
   })
 
-  test('the checkpoint and audit subpaths resolve', async () => {
-    const { pathToFileURL: toUrl } = await import('node:url')
-    const signing = await import(toUrl(join(process.cwd(), 'dist/esm/signing.js')).href)
-    const { audit } = await import(toUrl(join(process.cwd(), 'dist/esm/audit.js')).href)
+  test('checkpoints, signing and audit are reachable from the root export', async () => {
+    const signing = await import(dist)
+    const { audit } = await import(dist)
 
     const path = tempDb()
     const { privateKey, publicKey } = signing.generateSigningKeyPair()
@@ -305,10 +304,9 @@ describe('published build', () => {
     // from resolving ESM declarations for a CJS file.
     assert.ok(existsSync(join(process.cwd(), 'dist/esm/index.d.ts')))
     assert.ok(existsSync(join(process.cwd(), 'dist/cjs/index.d.ts')))
-    for (const name of ['signing', 'audit']) {
-      assert.ok(existsSync(join(process.cwd(), `dist/esm/${name}.d.ts`)), `esm ${name} types`)
-      assert.ok(existsSync(join(process.cwd(), `dist/cjs/${name}.d.ts`)), `cjs ${name} types`)
-    }
+    // Everything ships through one entry point; nothing resolves by subpath.
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'))
+    assert.deepEqual(Object.keys(pkg.exports), ['.', './package.json'])
     assert.equal(
       JSON.parse(readFileSync(join(process.cwd(), 'dist/cjs/package.json'), 'utf8')).type,
       'commonjs',

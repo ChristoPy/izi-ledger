@@ -1,6 +1,6 @@
 {
   "name": "izi-ledger",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Double-entry, zero-sum, hash-chained ledger on SQLite. Strong consistency, idempotency and crash safety. Works on Node and Bun.",
   "keywords": [
     "ledger",
@@ -43,28 +43,6 @@
       },
       "default": "./dist/esm/index.js"
     },
-    "./signing": {
-      "import": {
-        "types": "./dist/esm/signing.d.ts",
-        "default": "./dist/esm/signing.js"
-      },
-      "require": {
-        "types": "./dist/cjs/signing.d.ts",
-        "default": "./dist/cjs/signing.js"
-      },
-      "default": "./dist/esm/signing.js"
-    },
-    "./audit": {
-      "import": {
-        "types": "./dist/esm/audit.d.ts",
-        "default": "./dist/esm/audit.js"
-      },
-      "require": {
-        "types": "./dist/cjs/audit.d.ts",
-        "default": "./dist/cjs/audit.js"
-      },
-      "default": "./dist/esm/audit.js"
-    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -89,6 +67,7 @@
     "test": "bun test",
     "test:node": "node --no-warnings --test scripts/test-node-drivers.mjs",
     "test:drivers": "node scripts/test-all-drivers.mjs",
+    "check:package": "publint --strict && npx -y @arethetypeswrong/cli@latest --pack .",
     "example": "bun run examples/payments.ts",
     "check": "bun run lint && bun run typecheck && bun test",
     "prepublishOnly": "bun run lint && bun run typecheck && bun test && bun run build",
@@ -108,6 +87,7 @@
     "@types/bun": "^1.1.14",
     "@types/node": "^26.2.0",
     "better-sqlite3": "^11.10.0",
+    "publint": "^0.3.24",
     "typescript": "^7.0.2"
   },
   "trustedDependencies": [

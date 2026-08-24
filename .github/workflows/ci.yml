@@ -80,5 +80,5 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run build
       # Catches a broken exports map or CJS/ESM type mismatch before npm does.
-      - run: bunx publint --strict
-      - run: npx -y @arethetypeswrong/cli@latest --pack .
+      # Same script as `bun run check:package` locally, so the two cannot drift.
+      - run: bun run check:package
