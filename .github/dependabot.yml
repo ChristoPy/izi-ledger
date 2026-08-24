@@ -8,11 +8,13 @@ updates:
       dev-dependencies:
         patterns: ['*']
     ignore:
-      # better-sqlite3 v13 requires Node >= 22, and the only reason this
-      # library depends on it at all is to serve Node 20, which has no
-      # built-in node:sqlite. Stay on 12.x until Node 20 is dropped.
+      # better-sqlite3 12 publishes no Node 20 prebuild (no node-v115 asset)
+      # despite claiming 20.x in engines, so every Node 20 user would have to
+      # compile from source — and current node-gyp does not run on Node 20.
+      # Node 20 is the runtime with no built-in node:sqlite, so this addon is
+      # its only driver. Stay on 11.x until Node 20 is dropped.
       - dependency-name: better-sqlite3
-        versions: ['>=13']
+        versions: ['>=12']
   - package-ecosystem: github-actions
     directory: /
     schedule:

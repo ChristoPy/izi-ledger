@@ -5,15 +5,42 @@
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 const dist = pathToFileURL(join(process.cwd(), 'dist/esm/index.js')).href
-const { ledger, availableDrivers, IdempotencyConflictError, InsufficientFundsError } = await import(
-  dist
-)
+const { ledger, IdempotencyConflictError, InsufficientFundsError } = await import(dist)
+
+/**
+ * better-sqlite3 v11 aborts inside Database::~Database() on Node 24, once the
+ * environment has already been torn down. v12 fixes it but publishes no Node 20
+ * prebuild, and Node 20 is the runtime that has no built-in node:sqlite — so
+ * v11 is what a Node 20 install actually gets.
+ *
+ * Nothing is lost by not running it here: on Node >= 22.5 the built-in
+ * node:sqlite wins driver resolution and the addon is never reached unless it
+ * is forced. This is checked before probing, because merely opening and closing
+ * a Database is enough to plant the abort.
+ */
+function betterSqlite3Unsupported() {
+  const nodeMajor = Number(process.versions.node.split('.')[0])
+  if (nodeMajor < 24) return null
+  let installed
+  try {
+    installed = createRequireHere()('better-sqlite3/package.json').version
+  } catch {
+    return 'better-sqlite3 is not installed'
+  }
+  if (Number(installed.split('.')[0]) >= 12) return null
+  return `better-sqlite3 ${installed} aborts on Node ${process.versions.node}; needs >= 12`
+}
+
+function createRequireHere() {
+  return createRequire(join(process.cwd(), 'package.json'))
+}
 
 const dirs = []
 function tempDb() {
@@ -25,7 +52,21 @@ after(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
 })
 
-const drivers = (await availableDrivers()).filter((d) => d !== 'bun:sqlite')
+const skipReason = betterSqlite3Unsupported()
+const drivers = []
+for (const name of ['node:sqlite', 'better-sqlite3']) {
+  if (name === 'better-sqlite3' && skipReason) {
+    console.log(`skipping better-sqlite3: ${skipReason}`)
+    continue
+  }
+  try {
+    const probe = await ledger({ driver: name, path: ':memory:' })
+    await probe.close()
+    drivers.push(name)
+  } catch (error) {
+    console.log(`skipping ${name}: ${error.message.split('\n')[0]}`)
+  }
+}
 assert.ok(drivers.length > 0, 'expected at least one Node-capable SQLite driver')
 console.log(`running the conformance suite against: ${drivers.join(', ')}`)
 

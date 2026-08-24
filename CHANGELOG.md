@@ -10,14 +10,7 @@ because it makes existing database files unreadable.
 
 ## [Unreleased]
 
-### Changed
-
-- `better-sqlite3` is now an optional peer at `>=12`, up from `>=9`. Version 11
-  ships no `engines` field, installs happily on Node 24, and then aborts inside
-  `Database::~Database()` once the Node environment has been torn down — an
-  abort that showed up on Linux while the same version passed on macOS.
-  Version 12 declares support for Node 20 through 26, which is this library's
-  whole supported range.
+Nothing yet.
 
 ## [0.1.0] — unreleased
 
