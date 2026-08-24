@@ -33,7 +33,11 @@ await book.getBalance('user:1') // 9750
 npm install izi-ledger      # bun add izi-ledger / pnpm add izi-ledger
 ```
 
-Zero runtime dependencies. The SQLite driver is picked at runtime:
+Zero runtime dependencies, and one entry point: everything is exported from
+`izi-ledger` itself, with no subpaths, so an older `moduleResolution: node`
+consumer resolves all of it.
+
+The SQLite driver is picked at runtime:
 
 | Runtime | Driver used | Needs an install? |
 | --- | --- | --- |
@@ -94,7 +98,9 @@ everything else.
 ```ts
 const result = await book.verify()          // whole ledger
 const forUser = await book.verify('user:1') // just this wallet's chain
-// { ok: false, checked: 12, issues: [{ seq: 7, reason: 'Hash mismatch at seq 7: …' }] }
+// { ok: false, checked: 12, anchorsChecked: 0, issues: [
+//   { seq: 7, walletId: 'user:1', category: 'chain', reason: 'Hash mismatch at seq 7: …' },
+// ] }
 ```
 
 `verify()` re-hashes every movement, re-links both chains, recomputes every
@@ -103,6 +109,10 @@ that the ledger still nets to zero per currency. Editing a single amount with a
 `sqlite3` shell is detected — as is deleting a row, re-pointing a hash,
 doctoring a wallet's stored balance, or rewriting an idempotency key. Pass
 `verifyOnOpen: true` to run it at startup.
+
+What it cannot detect on its own is a rewrite that recomputes *everything* —
+see [Checkpoints](#checkpoints-and-proving-it-to-someone-else) below, which is
+the part that makes the result mean something to somebody else.
 
 ## Checkpoints, and proving it to someone else
 
@@ -118,6 +128,10 @@ before it happened.
 
 ```ts
 import { ledger, ed25519Signer, generateSigningKeyPair } from 'izi-ledger'
+
+// Once, at setup. Keep the private half somewhere the app cannot read, and
+// hand the public half to whoever will be checking your work.
+const { privateKey, publicKey } = generateSigningKeyPair()
 
 const book = await ledger({
   path: './ledger.db',
@@ -142,9 +156,6 @@ result, are policy decisions the library should not make for you. Each
 checkpoint links to the previous one, so a missing one is visible too.
 
 ### Signing
-
-Everything below is exported from the package root — there are no subpath
-entry points, so an older `moduleResolution: node` consumer resolves it too.
 
 `Signer` is an interface, not a private key, because the point of signing is
 that an auditor verifies with the **public** half and gains no power to forge.
@@ -264,6 +275,7 @@ const book = await ledger(options?: string | LedgerOptions)
 | `busyTimeoutMs` | `5_000` | wait on a locked database before failing |
 | `verifyOnOpen` | `false` | verify the whole chain at startup |
 | `now` | `Date.now` | clock injection for deterministic tests |
+| `signer` | none | signs checkpoints as they are produced; see [Signing](#signing) |
 
 | Method | |
 | --- | --- |
@@ -274,7 +286,9 @@ const book = await ledger(options?: string | LedgerOptions)
 | `getWallet(id)` / `listWallets()` | |
 | `getTransaction(keyOrTxId)` | |
 | `listMovements({ walletId, txId, idempotencyKey, afterSeq, limit, order })` | statements, cursor-paginated |
-| `verify(walletId?)` | re-hash and re-link the chain |
+| `verify(walletId \| options)` | re-hash and re-link the chain; pass `{ anchors, publicKeys }` to check it against published checkpoints |
+| `checkpoint()` | a signed commitment to the ledger right now, to publish elsewhere |
+| `listCheckpoints()` | the local record of checkpoints, oldest first |
 | `stats()` | counts, head hash, cache metrics |
 | `close()` | drains in-flight work, then closes |
 
@@ -333,15 +347,17 @@ try {
 
 ```sh
 bun install
-bun run check         # lint + typecheck + the full suite
-bun run example       # the runnable payments example
-bun run test:drivers  # the suite, then the built package on Node's two drivers
-bun run build         # dual ESM + CJS output, with declarations for each
+bun run check          # lint + typecheck + the full suite
+bun run example        # the runnable payments example
+bun run example:audit  # the checkpoint and audit loop, end to end
+bun run test:drivers   # the suite, then the built package on Node's two drivers
+bun run check:package  # publint + are-the-types-wrong against the built tarball
+bun run build          # dual ESM + CJS output, with declarations for each
 ```
 
 CI runs lint and typecheck, the Bun suite on Linux and macOS, the Node suite on
-20/22/24, and packaging checks (`publint` and `are-the-types-wrong`) against the
-built tarball.
+20/22/24, both examples, and `check:package` — the same script as above, so a
+laptop and CI cannot drift apart on it.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the invariants a change has to keep
 holding, and [SECURITY.md](SECURITY.md) for what the hash chain does and does
