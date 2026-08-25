@@ -12,7 +12,7 @@ because it makes existing database files unreadable.
 
 Nothing yet.
 
-## [0.3.0] — 2026-08-24
+## [0.3.0] — 2026-08-25
 
 ### Changed
 
