@@ -16,7 +16,10 @@ export function tempDbPath(name = 'ledger.db'): string {
 }
 
 export async function openLedger(options: LedgerOptions = {}): Promise<Ledger> {
-  const instance = await ledger({ path: ':memory:', ...options })
+  // Most tests describe a single-currency book, so they name the currency once
+  // here the way a real one would. Tests about the currency rules pass their
+  // own defaultCurrency, or none at all.
+  const instance = await ledger({ path: ':memory:', defaultCurrency: 'BRL', ...options })
   open.push(instance)
   return instance
 }

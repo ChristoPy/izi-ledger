@@ -53,7 +53,6 @@ import type {
 const DEFAULTS = {
   path: ':memory:',
   durability: 'full' as const,
-  defaultCurrency: 'BRL',
   cacheSize: 10_000,
   busyTimeoutMs: 5_000,
   verifyOnOpen: false,
@@ -93,7 +92,7 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
   const opts = typeof options === 'string' ? { path: options } : options
   const path = opts.path ?? DEFAULTS.path
   const durability = opts.durability ?? DEFAULTS.durability
-  const defaultCurrency = opts.defaultCurrency ?? DEFAULTS.defaultCurrency
+  const defaultCurrency = opts.defaultCurrency
   const busyTimeoutMs = opts.busyTimeoutMs ?? DEFAULTS.busyTimeoutMs
   const now = opts.now ?? (() => Date.now())
 
@@ -132,7 +131,7 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
 
 interface InternalOptions {
   path: string
-  defaultCurrency: string
+  defaultCurrency: string | undefined
   cacheSize: number
   now: () => number
   signer?: Signer
@@ -261,7 +260,17 @@ class LedgerImpl implements Ledger {
       if (typeof id !== 'string' || id.length === 0) {
         throw new InvalidArgumentError('createWallet requires a non-empty string id.')
       }
+      // No currency is ever invented. A ledger that guesses one puts a label
+      // on somebody's money that nobody chose, which is exactly the kind of
+      // quiet mistake the rest of this library exists to prevent.
       const currency = spec.currency ?? this.options.defaultCurrency
+      if (currency === undefined) {
+        throw new InvalidArgumentError(
+          `Wallet "${id}" needs a currency. Pass one on the wallet ` +
+            `(createWallet({ id: "${id}", currency: "<code>" })), or set a ` +
+            'defaultCurrency on the ledger for wallets to inherit.',
+        )
+      }
       if (typeof currency !== 'string' || currency.length === 0) {
         throw new InvalidArgumentError(`Wallet "${id}" has an invalid currency.`)
       }

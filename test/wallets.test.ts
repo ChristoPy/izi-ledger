@@ -42,6 +42,42 @@ describe('createWallet', () => {
     expect((await book.createWallet('x')).currency).toBe('USD')
   })
 
+  test('refuses to invent a currency', async () => {
+    const book = await openLedger({ defaultCurrency: undefined })
+    const error = await book.createWallet('nameless').catch((e: InvalidArgumentError) => e)
+    expect(error).toBeInstanceOf(InvalidArgumentError)
+    // The message has to say both ways out, because which one is right depends
+    // on whether the book is single- or multi-currency.
+    expect((error as Error).message).toContain('needs a currency')
+    expect((error as Error).message).toContain('createWallet')
+    expect((error as Error).message).toContain('defaultCurrency')
+    expect((await book.stats()).wallets).toBe(0)
+  })
+
+  test('a wallet may name its own currency with no ledger default', async () => {
+    const book = await openLedger({ defaultCurrency: undefined })
+    expect((await book.createWallet({ id: 'a', currency: 'USD' })).currency).toBe('USD')
+  })
+
+  test('a multi-currency book needs no default at all', async () => {
+    const book = await openLedger({ defaultCurrency: undefined })
+    await book.createWallet({ id: 'brl', currency: 'BRL', allowNegative: true })
+    await book.createWallet({ id: 'usd', currency: 'USD', allowNegative: true })
+    await book.addMovement(
+      [
+        { walletId: 'brl', amount: -100 },
+        { walletId: 'brl', amount: 100 },
+      ],
+      'k',
+    )
+    expect((await book.verify()).ok).toBe(true)
+  })
+
+  test('rejects an empty currency just as firmly as a missing one', async () => {
+    const book = await openLedger({ defaultCurrency: undefined })
+    await expect(book.createWallet({ id: 'a', currency: '' })).rejects.toThrow(InvalidArgumentError)
+  })
+
   test('rejects duplicates', async () => {
     const book = await openLedger()
     await book.createWallet('dup')
