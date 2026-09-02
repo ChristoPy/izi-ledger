@@ -349,20 +349,28 @@ class LedgerImpl implements Ledger {
         throw new InvalidArgumentError('getBalances requires an array of wallet ids.')
       }
       this.syncDataVersion()
-      const out: Record<string, number> = {}
+      // Wallet ids are arbitrary strings, so accumulating into an object
+      // literal loses two of them. `walletId in out` reaches Object.prototype,
+      // which made a wallet called `toString` look like one already resolved —
+      // dropped from the result, and never checked for existence. And
+      // `out['__proto__'] = n` sets a prototype rather than a key, so that one
+      // vanished whatever the guard. A Map has neither problem, and
+      // Object.fromEntries defines own properties, so callers still get an
+      // ordinary object back.
+      const balances = new Map<string, number>()
       for (const walletId of walletIds) {
-        if (walletId in out) continue
+        if (balances.has(walletId)) continue
         const cached = this.cache.get(walletId)
         if (cached !== undefined) {
-          out[walletId] = cached
+          balances.set(walletId, cached)
           continue
         }
         const state = this.readWalletState(walletId)
         if (!state) throw new WalletNotFoundError(walletId)
         this.cache.set(walletId, state.balance)
-        out[walletId] = state.balance
+        balances.set(walletId, state.balance)
       }
-      return out
+      return Object.fromEntries(balances)
     })
   }
 
