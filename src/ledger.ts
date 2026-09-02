@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { addExact, assertAmount } from './amount.js'
 import { BalanceCache } from './cache.js'
 import { canonicalJson, movementHash, requestFingerprint } from './canonical.js'
@@ -24,12 +25,15 @@ import {
   IntegrityError,
   InvalidArgumentError,
   LedgerClosedError,
+  LedgerNotFoundError,
+  LedgerUnreadableError,
+  ReadOnlyLedgerError,
   UnbalancedMovementError,
   WalletAlreadyExistsError,
   WalletNotFoundError,
 } from './errors.js'
 import { Mutex } from './mutex.js'
-import { applyPragmas, applySchema } from './schema.js'
+import { applyPragmas, applySchema, assertSchema } from './schema.js'
 import { verifyCheckpointSignature } from './signing.js'
 import type {
   AddMovementOptions,
@@ -56,6 +60,7 @@ const DEFAULTS = {
   cacheSize: 10_000,
   busyTimeoutMs: 5_000,
   verifyOnOpen: false,
+  readonly: false,
 }
 
 const VERIFY_CHUNK = 1_000
@@ -96,13 +101,31 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
   const busyTimeoutMs = opts.busyTimeoutMs ?? DEFAULTS.busyTimeoutMs
   const now = opts.now ?? (() => Date.now())
 
-  const driver = await resolveDriver({ path, driver: opts.driver })
+  const readonly = opts.readonly ?? DEFAULTS.readonly
+
+  // Opening read-write creates the file, so a verifier pointed at a typo gets a
+  // brand-new empty ledger — which passes every check there is. Read-only makes
+  // SQLite refuse instead, and this check turns that refusal into an error that
+  // names the real problem rather than a driver that "could not be loaded".
+  if (readonly && path !== ':memory:' && !existsSync(path)) {
+    throw new LedgerNotFoundError(path, 'the file does not exist')
+  }
+
+  let driver: Driver
   try {
-    applyPragmas(driver, { durability, busyTimeoutMs })
-    applySchema(driver)
+    driver = await resolveDriver({ path, driver: opts.driver, readonly })
+  } catch (error) {
+    throw readonly && cannotOpen(error) ? new LedgerUnreadableError(path, { cause: error }) : error
+  }
+  try {
+    applyPragmas(driver, { durability, busyTimeoutMs, readonly })
+    if (readonly) assertSchema(driver, path)
+    else applySchema(driver)
   } catch (error) {
     driver.close()
-    throw error
+    // bun:sqlite opens lazily, so a file it cannot read surfaces here rather
+    // than above. Same problem, same answer.
+    throw readonly && cannotOpen(error) ? new LedgerUnreadableError(path, { cause: error }) : error
   }
 
   const instance = new LedgerImpl(driver, {
@@ -111,6 +134,7 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
     cacheSize: opts.cacheSize ?? DEFAULTS.cacheSize,
     now,
     signer: opts.signer,
+    readonly,
   })
 
   if (opts.verifyOnOpen ?? DEFAULTS.verifyOnOpen) {
@@ -135,6 +159,7 @@ interface InternalOptions {
   cacheSize: number
   now: () => number
   signer?: Signer
+  readonly: boolean
 }
 
 interface WalletState {
@@ -234,6 +259,10 @@ class LedgerImpl implements Ledger {
   }
 
   private transaction<T>(fn: () => T): T {
+    // Every write goes through here, so this is the only place that has to
+    // know. SQLite would refuse anyway; saying so in the library's own
+    // vocabulary beats surfacing a raw SQLITE_READONLY from three drivers.
+    if (this.options.readonly) throw new ReadOnlyLedgerError(this.options.path)
     this.driver.exec('BEGIN IMMEDIATE;')
     let result: T
     try {
@@ -1211,6 +1240,24 @@ class LedgerImpl implements Ledger {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/**
+ * SQLite's "unable to open database file", wherever in the stack it surfaced.
+ *
+ * The three drivers disagree on how they report it and `resolveDriver` wraps
+ * whatever it caught, so this walks the cause chain and accepts either the
+ * code or SQLite's own wording.
+ */
+function cannotOpen(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    if ((current as { code?: unknown }).code === 'SQLITE_CANTOPEN') return true
+    if (current instanceof Error && current.message.includes('unable to open database file')) {
+      return true
+    }
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
 
 function normaliseEntries(entries: MovementInput[]): MovementInput[] {
   if (!Array.isArray(entries)) {

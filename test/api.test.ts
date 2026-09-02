@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
 import defaultExport, {
+  audit,
   availableDrivers,
   createLedger,
   DriverUnavailableError,
   InvalidArgumentError,
   LedgerError,
+  LedgerNotFoundError,
+  LedgerUnreadableError,
   ledger,
+  ReadOnlyLedgerError,
   SCHEMA_VERSION,
   SchemaVersionMismatchError,
 } from '../src/index.js'
@@ -139,5 +144,100 @@ describe('schema guard', () => {
 
   test('exports the schema version it speaks', () => {
     expect(SCHEMA_VERSION).toBe(3)
+  })
+})
+
+/** A small, healthy ledger on disk, closed, sidecars where SQLite left them. */
+async function sealed(): Promise<string> {
+  const path = tempDbPath()
+  const book = await openLedger({ path })
+  await book.createWallet({ id: 'a', allowNegative: true })
+  await book.createWallet('b')
+  await book.addMovement(
+    [
+      { walletId: 'a', amount: -100 },
+      { walletId: 'b', amount: 100 },
+    ],
+    'k',
+  )
+  await book.close()
+  return path
+}
+
+describe('read-only ledgers', () => {
+  test('will not create the database it was asked to read', async () => {
+    const path = tempDbPath() // the directory exists, the file does not
+    await expect(ledger({ path, readonly: true })).rejects.toThrow(LedgerNotFoundError)
+    expect(existsSync(path)).toBe(false)
+  })
+
+  test('refuses a file that holds no ledger', async () => {
+    const path = tempDbPath()
+    writeFileSync(path, '')
+    await expect(ledger({ path, readonly: true })).rejects.toThrow(LedgerNotFoundError)
+  })
+
+  test('reads an existing ledger', async () => {
+    const path = await sealed()
+    const book = await ledger({ path, readonly: true })
+    expect(await book.getBalance('b')).toBe(100)
+    expect((await book.verify()).ok).toBe(true)
+    expect((await book.stats()).movements).toBe(2)
+    await book.close()
+  })
+
+  test('refuses a WAL ledger archived without its sidecars', async () => {
+    // SQLite reads through a WAL using the -shm index and a read-only handle
+    // cannot create one. The main file on its own can be missing every
+    // movement still in the -wal, so this has to be an error and not a report.
+    const source = await sealed()
+    const path = `${source}.copy`
+    copyFileSync(source, path)
+    const error = await ledger({ path, readonly: true }).catch((e) => e)
+    expect(error).toBeInstanceOf(LedgerUnreadableError)
+    expect(error.message).toContain(`${path}-wal`)
+  })
+
+  test('rejects every write path', async () => {
+    const path = await sealed()
+    const book = await ledger({ path, readonly: true, defaultCurrency: 'BRL' })
+    await expect(book.createWallet('c')).rejects.toThrow(ReadOnlyLedgerError)
+    await expect(
+      book.addMovement(
+        [
+          { walletId: 'a', amount: -1 },
+          { walletId: 'b', amount: 1 },
+        ],
+        'nope',
+      ),
+    ).rejects.toThrow(ReadOnlyLedgerError)
+    await expect(book.checkpoint()).rejects.toThrow(ReadOnlyLedgerError)
+    await book.close()
+  })
+})
+
+describe('audit', () => {
+  test('a path with no ledger is an error, not a verified empty book', async () => {
+    const path = tempDbPath()
+    await expect(audit({ path })).rejects.toThrow(LedgerNotFoundError)
+    expect(existsSync(path)).toBe(false)
+  })
+
+  test('reports a healthy ledger', async () => {
+    const path = await sealed()
+    const report = await audit({ path })
+    expect(report.ok).toBe(true)
+    expect(report.movements).toBe(2)
+    expect(report.checked).toBe(2)
+    expect(report.issues).toEqual([])
+    expect(report.totals).toEqual({ BRL: 0 })
+  })
+
+  test('reports a tampered ledger', async () => {
+    const path = await sealed()
+    raw(path, (db) => db.run('UPDATE movements SET amount = amount + 1 WHERE seq = 1'))
+    const report = await audit({ path })
+    expect(report.ok).toBe(false)
+    expect(report.issues.length).toBeGreaterThan(0)
   })
 })

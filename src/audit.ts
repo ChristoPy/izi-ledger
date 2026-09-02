@@ -46,6 +46,10 @@ export async function audit(options: AuditOptions): Promise<AuditReport> {
     path: options.path,
     ...(options.driver ? { driver: options.driver } : {}),
     cacheSize: 0,
+    // An auditor must not be able to change what it is auditing — including by
+    // creating it. Read-write, this call makes an empty ledger out of any path
+    // that has no file at it, and an empty ledger passes every check below.
+    readonly: true,
   })
 
   try {

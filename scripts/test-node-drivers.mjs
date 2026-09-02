@@ -4,15 +4,21 @@
  * and doubles as a check that dist/ actually works outside Bun.
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 
 const dist = pathToFileURL(join(process.cwd(), 'dist/esm/index.js')).href
-const { ledger, IdempotencyConflictError, InsufficientFundsError } = await import(dist)
+const {
+  ledger,
+  IdempotencyConflictError,
+  InsufficientFundsError,
+  LedgerNotFoundError,
+  ReadOnlyLedgerError,
+} = await import(dist)
 
 /**
  * better-sqlite3 v11 aborts inside Database::~Database() on Node 24, once the
@@ -172,6 +178,35 @@ for (const driver of drivers) {
       assert.equal((await book.stats()).movements, 0)
       assert.equal((await book.verify()).ok, true)
       await book.close()
+    })
+
+    test('opens read-only without creating or writing anything', async () => {
+      const path = tempDb()
+      const first = await ledger({ driver, path, defaultCurrency: 'BRL' })
+      await first.createWallet({ id: 'a', allowNegative: true })
+      await first.createWallet('b')
+      await first.addMovement(
+        [
+          { walletId: 'a', amount: -100 },
+          { walletId: 'b', amount: 100 },
+        ],
+        'p1',
+      )
+      await first.close()
+
+      const reader = await ledger({ driver, path, readonly: true, defaultCurrency: 'BRL' })
+      assert.equal(await reader.getBalance('b'), 100)
+      assert.equal((await reader.verify()).ok, true)
+      await assert.rejects(() => reader.createWallet('c'), ReadOnlyLedgerError)
+      await reader.close()
+
+      // The whole point: a path with no ledger is an error, not a new one.
+      const missing = join(dirname(path), 'absent.db')
+      await assert.rejects(
+        () => ledger({ driver, path: missing, readonly: true }),
+        LedgerNotFoundError,
+      )
+      assert.equal(existsSync(missing), false)
     })
 
     test('persists and keeps chaining across a reopen', async () => {

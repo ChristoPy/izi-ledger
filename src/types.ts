@@ -88,6 +88,16 @@ export interface LedgerOptions {
   cacheSize?: number
   /** Milliseconds to wait on a locked database before failing. Default `5000`. */
   busyTimeoutMs?: number
+  /**
+   * Open the file without write access: the schema is checked instead of
+   * created, no write lock is taken, no WAL sidecars appear next to it, and a
+   * path with no ledger at it is an error rather than a new empty book. Writes
+   * throw `ReadOnlyLedgerError`.
+   *
+   * This is what `audit()` uses, and what lets a ledger on read-only media —
+   * a snapshot, a mounted artefact — be verified at all. Default `false`.
+   */
+  readonly?: boolean
   /** Walk and re-hash the whole chain when opening. Default `false`. */
   verifyOnOpen?: boolean
   /** Clock injection point for deterministic tests. Defaults to `Date.now`. */
