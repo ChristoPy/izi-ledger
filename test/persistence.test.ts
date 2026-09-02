@@ -100,6 +100,40 @@ describe('atomicity', () => {
     await expect(book.addMovement(payment(500, 100), 'doomed')).resolves.toBeDefined()
   })
 
+  test('a COMMIT that fails rolls back instead of stranding the transaction', async () => {
+    const path = tempDbPath()
+    const book = await openLedger({ path })
+    await book.createWallet({ id: 'a', allowNegative: true })
+    await book.createWallet('b')
+    const entries = [
+      { walletId: 'a', amount: -100 },
+      { walletId: 'b', amount: 100 },
+    ]
+
+    // A full disk, a lost lock or an I/O error surfaces at COMMIT, which is the
+    // one statement outside the transaction helper's try. Fail it once.
+    const driver = (book as unknown as { driver: { exec(sql: string): void } }).driver
+    const realExec = driver.exec.bind(driver)
+    let broken = true
+    driver.exec = (sql: string) => {
+      if (broken && sql.startsWith('COMMIT')) {
+        broken = false
+        throw new Error('disk I/O error')
+      }
+      realExec(sql)
+    }
+
+    await expect(book.addMovement(entries, 'doomed')).rejects.toThrow('disk I/O error')
+    driver.exec = realExec
+
+    // The handle has to survive: a transaction left open fails every later
+    // write with "cannot start a transaction within a transaction".
+    await expect(book.addMovement(entries, 'next')).resolves.toBeDefined()
+    expect(await book.getBalance('b')).toBe(100)
+    expect((await book.stats()).movements).toBe(2)
+    expect((await book.verify()).ok).toBe(true)
+  })
+
   test('the failure happens before any row is written, not after', async () => {
     const path = tempDbPath()
     const book = await openLedger({ path })
