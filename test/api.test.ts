@@ -196,6 +196,20 @@ describe('read-only ledgers', () => {
     const error = await ledger({ path, readonly: true }).catch((e) => e)
     expect(error).toBeInstanceOf(LedgerUnreadableError)
     expect(error.message).toContain(`${path}-wal`)
+    expect(existsSync(`${path}-wal`)).toBe(false)
+    expect(existsSync(`${path}-shm`)).toBe(false)
+  })
+
+  test('reads a ledger archived with its sidecars', async () => {
+    const source = await sealed()
+    const path = `${source}.archive`
+    for (const suffix of ['', '-wal', '-shm']) {
+      copyFileSync(`${source}${suffix}`, `${path}${suffix}`)
+    }
+    const book = await ledger({ path, readonly: true })
+    expect(await book.getBalance('b')).toBe(100)
+    expect((await book.verify()).ok).toBe(true)
+    await book.close()
   })
 
   test('rejects every write path', async () => {

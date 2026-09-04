@@ -28,10 +28,12 @@ because it makes existing database files unreadable.
 ### Added
 
 - `readonly` on `LedgerOptions`, which is what `audit()` now uses. It takes no
-  write lock, creates nothing beside the file, and throws the new
-  `ReadOnlyLedgerError` on any write. A WAL-mode ledger copied without its
-  sidecars cannot be read this way and reports `LedgerUnreadableError` rather
-  than a partial history — see "Reading a ledger you do not own" in the README.
+  write lock, throws the new `ReadOnlyLedgerError` on any write, and leaves a
+  file it refused to read exactly as it found it. A WAL-mode ledger copied away
+  from the `-wal` that still held its movements reports `LedgerUnreadableError`
+  rather than a partial history — SQLite builds disagree on whether they refuse
+  such a file or open it and see nothing, and both arrive at that same error.
+  See "Reading a ledger you do not own" in the README.
 
   New error codes: `LEDGER_NOT_FOUND`, `LEDGER_UNREADABLE`, `READ_ONLY`.
 

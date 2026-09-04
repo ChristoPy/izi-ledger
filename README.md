@@ -200,8 +200,8 @@ signatures look forged.
 
 `audit()` and `izi-ledger audit` open the file **read-only**, and `ledger()`
 takes the same `readonly: true` for anything else that only reads. A read-only
-handle takes no write lock, creates nothing beside the file, and throws
-`ReadOnlyLedgerError` on any write.
+handle takes no write lock, throws `ReadOnlyLedgerError` on any write, and never
+leaves anything behind on a file it refused to read.
 
 The part that matters for a CI gate: a path with no ledger at it is
 `LEDGER_NOT_FOUND`, not a new empty book. Read-write, opening creates the file
@@ -209,12 +209,15 @@ and mints it a fresh `ledgerId`, and an empty ledger passes every check there
 is — so a typo in the path verifies, loudly and falsely.
 
 **Archiving a ledger means copying its sidecars too.** SQLite reads through a
-WAL using the `-shm` index, and a read-only handle cannot create one, so
-`ledger.db` copied on its own is `LEDGER_UNREADABLE`. That refusal is the point:
-the main file can be missing every movement still sitting in the `-wal`, and a
-verifier must not report on a history it can only partly see. Copy
-`ledger.db`, `ledger.db-wal` and `ledger.db-shm` together and the read-only
-path reads the whole book.
+WAL using the `-shm` index, so `ledger.db` copied away from a `-wal` that still
+held the book is `LEDGER_UNREADABLE` — some SQLite builds refuse to open it at
+all, others open it and find an empty file, and both get that same answer. The
+refusal is the point: the main file can be missing every movement still sitting
+in the `-wal`, and a verifier must not report on a history it can only partly
+see. Copy `ledger.db`, `ledger.db-wal` and `ledger.db-shm` together and the
+read-only path reads the whole book. A ledger whose `-wal` was checkpointed away
+by a clean close reads on its own, because then the main file *is* the whole
+book.
 
 Where to publish anchors, roughly in order of what they buy you:
 
