@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { closeSync, existsSync, openSync, readSync, rmSync } from 'node:fs'
 import { addExact, assertAmount } from './amount.js'
 import { BalanceCache } from './cache.js'
 import { canonicalJson, movementHash, requestFingerprint } from './canonical.js'
@@ -24,12 +25,15 @@ import {
   IntegrityError,
   InvalidArgumentError,
   LedgerClosedError,
+  LedgerNotFoundError,
+  LedgerUnreadableError,
+  ReadOnlyLedgerError,
   UnbalancedMovementError,
   WalletAlreadyExistsError,
   WalletNotFoundError,
 } from './errors.js'
 import { Mutex } from './mutex.js'
-import { applyPragmas, applySchema } from './schema.js'
+import { applyPragmas, applySchema, assertSchema } from './schema.js'
 import { verifyCheckpointSignature } from './signing.js'
 import type {
   AddMovementOptions,
@@ -56,6 +60,7 @@ const DEFAULTS = {
   cacheSize: 10_000,
   busyTimeoutMs: 5_000,
   verifyOnOpen: false,
+  readonly: false,
 }
 
 const VERIFY_CHUNK = 1_000
@@ -96,13 +101,38 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
   const busyTimeoutMs = opts.busyTimeoutMs ?? DEFAULTS.busyTimeoutMs
   const now = opts.now ?? (() => Date.now())
 
-  const driver = await resolveDriver({ path, driver: opts.driver })
+  const readonly = opts.readonly ?? DEFAULTS.readonly
+
+  // Opening read-write creates the file, so a verifier pointed at a typo gets a
+  // brand-new empty ledger — which passes every check there is. Read-only makes
+  // SQLite refuse instead, and this check turns that refusal into an error that
+  // names the real problem rather than a driver that "could not be loaded".
+  if (readonly && path !== ':memory:' && !existsSync(path)) {
+    throw new LedgerNotFoundError(path, 'the file does not exist')
+  }
+
+  // What was beside the file before anything opened it. A WAL database is read
+  // through its `-shm` index, and the SQLite builds that agree to open one
+  // read-only create the index when it is missing — so this is both how a
+  // refusal puts the directory back as it found it, and how it tells a ledger
+  // whose `-wal` was left behind from one that never had a `-wal` to lose.
+  const sidecars = readonly && path !== ':memory:' ? sidecarsBeside(path) : undefined
+
+  let driver: Driver
   try {
-    applyPragmas(driver, { durability, busyTimeoutMs })
-    applySchema(driver)
+    driver = await resolveDriver({ path, driver: opts.driver, readonly })
+  } catch (error) {
+    throw refusal(path, sidecars, error)
+  }
+  try {
+    applyPragmas(driver, { durability, busyTimeoutMs, readonly })
+    if (readonly) assertSchema(driver, path)
+    else applySchema(driver)
   } catch (error) {
     driver.close()
-    throw error
+    // bun:sqlite opens lazily, so a file it cannot read surfaces here rather
+    // than above. Same problem, same answer.
+    throw refusal(path, sidecars, error)
   }
 
   const instance = new LedgerImpl(driver, {
@@ -111,6 +141,7 @@ export async function ledger(options: LedgerOptions | string = {}): Promise<Ledg
     cacheSize: opts.cacheSize ?? DEFAULTS.cacheSize,
     now,
     signer: opts.signer,
+    readonly,
   })
 
   if (opts.verifyOnOpen ?? DEFAULTS.verifyOnOpen) {
@@ -135,6 +166,7 @@ interface InternalOptions {
   cacheSize: number
   now: () => number
   signer?: Signer
+  readonly: boolean
 }
 
 interface WalletState {
@@ -234,6 +266,10 @@ class LedgerImpl implements Ledger {
   }
 
   private transaction<T>(fn: () => T): T {
+    // Every write goes through here, so this is the only place that has to
+    // know. SQLite would refuse anyway; saying so in the library's own
+    // vocabulary beats surfacing a raw SQLITE_READONLY from three drivers.
+    if (this.options.readonly) throw new ReadOnlyLedgerError(this.options.path)
     this.driver.exec('BEGIN IMMEDIATE;')
     let result: T
     try {
@@ -1211,6 +1247,99 @@ class LedgerImpl implements Ledger {
 }
 
 // ------------------------------------------------------------------ helpers
+
+const SQLITE_MAGIC = 'SQLite format 3\0'
+
+interface Sidecars {
+  wal: boolean
+  shm: boolean
+}
+
+/**
+ * Whether the database at `path` is in WAL mode, read from the file header
+ * rather than from a connection.
+ *
+ * Bytes 18 and 19 of SQLite's 100-byte header are the write and read format
+ * versions — 2 for WAL, 1 for a rollback journal — written to the main file the
+ * moment the database is converted, precisely so the next connection knows what
+ * it is looking at before it opens anything. This is what separates a file that
+ * never held a ledger from a WAL ledger that arrived without its `-wal`: the
+ * first is honestly `LEDGER_NOT_FOUND`, the second is a book we cannot see all
+ * of.
+ */
+function isWalMode(path: string): boolean {
+  const header = Buffer.alloc(20)
+  let fd: number | undefined
+  try {
+    fd = openSync(path, 'r')
+    if (readSync(fd, header, 0, header.length, 0) < header.length) return false
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+  if (header.subarray(0, SQLITE_MAGIC.length).toString('latin1') !== SQLITE_MAGIC) return false
+  return header[18] === 2 || header[19] === 2
+}
+
+/** Which of SQLite's sidecar files are beside `path` right now. */
+function sidecarsBeside(path: string): Sidecars {
+  return { wal: existsSync(`${path}-wal`), shm: existsSync(`${path}-shm`) }
+}
+
+/**
+ * Turn a failure to open a ledger read-only into the error that names the real
+ * problem, and put back whatever opening it disturbed.
+ *
+ * Two things have to be normalised here, because SQLite builds disagree on both
+ * and a verifier that behaves differently per platform is not much of a
+ * verifier. A build that refuses a WAL database with no `-shm` beside it says
+ * so through `SQLITE_CANTOPEN`; a build that agrees to open one creates the
+ * index and then reads a main file that may hold nothing at all, which arrives
+ * here as "no izi-ledger schema". A `.db` archived away from a `-wal` that
+ * still held the whole book is the same accident either way, and gets the same
+ * answer.
+ *
+ * Only that second case gets its sidecars swept back up, and deliberately so.
+ * It is the one that can have created them, and it is the one where nothing was
+ * found to belong to anybody: a build that refuses the file never opened it, and
+ * a file that failed for any other reason holds a real ledger that may well have
+ * a writer attached to it — whose `-wal` is the last thing to go deleting.
+ */
+function refusal(path: string, before: Sidecars | undefined, error: unknown): unknown {
+  if (before === undefined) return error
+  const archivedWithoutWal = error instanceof LedgerNotFoundError && !before.wal && isWalMode(path)
+  if (archivedWithoutWal) {
+    try {
+      rmSync(`${path}-wal`, { force: true })
+      if (!before.shm) rmSync(`${path}-shm`, { force: true })
+    } catch {
+      // Best effort. The error being reported is the one worth keeping.
+    }
+  }
+  if (cannotOpen(error) || archivedWithoutWal) {
+    return new LedgerUnreadableError(path, { cause: error })
+  }
+  return error
+}
+
+/**
+ * SQLite's "unable to open database file", wherever in the stack it surfaced.
+ *
+ * The three drivers disagree on how they report it and `resolveDriver` wraps
+ * whatever it caught, so this walks the cause chain and accepts either the
+ * code or SQLite's own wording.
+ */
+function cannotOpen(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    if ((current as { code?: unknown }).code === 'SQLITE_CANTOPEN') return true
+    if (current instanceof Error && current.message.includes('unable to open database file')) {
+      return true
+    }
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
 
 function normaliseEntries(entries: MovementInput[]): MovementInput[] {
   if (!Array.isArray(entries)) {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { main } from '../src/cli.js'
@@ -164,6 +164,35 @@ describe('izi-ledger audit', () => {
     const { code, out } = await run(['audit', path, '--wallet', 'fees'])
     expect(code).toBe(0)
     expect(out).toContain('4 movements re-hashed')
+  })
+
+  test('a missing ledger is an error, not an empty one that verifies', async () => {
+    // The usage-error case below passes a path whose *directory* is missing, so
+    // it fails for an unrelated reason. A typo in the file name lands in a
+    // directory that exists, which is what a CI gate actually hits.
+    const path = join(scratch(), 'ledger-2026.db')
+    const { code, out, err } = await run(['audit', path])
+    expect(code).toBe(2)
+    expect(err).toContain('LEDGER_NOT_FOUND')
+    expect(out).not.toContain('VERIFIED')
+    expect(existsSync(path)).toBe(false)
+  })
+
+  test('writes nothing beside an artefact archived without its sidecars', async () => {
+    // A ledger archived as the .db alone. Read-write, the audit opens it,
+    // reports on whatever that file happens to hold, and leaves a -wal and a
+    // -shm next to the artefact. Refusing is the honest answer: the movements
+    // may still be in the -wal that was never copied.
+    const { path: source } = await auditable()
+    const path = join(scratch(), 'archived.db')
+    copyFileSync(source, path)
+
+    const { code, out, err } = await run(['audit', path])
+    expect(code).toBe(2)
+    expect(err).toContain('LEDGER_UNREADABLE')
+    expect(out).not.toContain('VERIFIED')
+    expect(existsSync(`${path}-wal`)).toBe(false)
+    expect(existsSync(`${path}-shm`)).toBe(false)
   })
 
   test('exits 2 on usage errors, not 1', async () => {

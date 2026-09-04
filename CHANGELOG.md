@@ -10,7 +10,32 @@ because it makes existing database files unreadable.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **`audit()` no longer creates the ledger it was asked to verify.** It opened
+  the file read-write through the same path as the application, so a path with
+  no file at it got a brand-new empty ledger — with a freshly minted
+  `ledgerId` — and an empty ledger satisfies every check: nothing to re-hash,
+  nothing to unbalance, and without `--anchors` nothing external to compare
+  against. `izi-ledger audit ./typo.db` printed `VERIFIED` and exited 0, then
+  left the file behind. Anyone using the anchor-less mode as a CI gate has been
+  getting a green that proves nothing whenever the path was wrong.
+
+  Auditing now opens read-only: a missing ledger is `LEDGER_NOT_FOUND`, a file
+  that carries no schema is the same error, and neither creates anything. No
+  database written by a previous version is affected, and no schema change.
+
+### Added
+
+- `readonly` on `LedgerOptions`, which is what `audit()` now uses. It takes no
+  write lock, throws the new `ReadOnlyLedgerError` on any write, and leaves a
+  file it refused to read exactly as it found it. A WAL-mode ledger copied away
+  from the `-wal` that still held its movements reports `LedgerUnreadableError`
+  rather than a partial history — SQLite builds disagree on whether they refuse
+  such a file or open it and see nothing, and both arrive at that same error.
+  See "Reading a ledger you do not own" in the README.
+
+  New error codes: `LEDGER_NOT_FOUND`, `LEDGER_UNREADABLE`, `READ_ONLY`.
 
 ## [0.3.0] — 2026-08-25
 

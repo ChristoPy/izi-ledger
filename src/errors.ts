@@ -1,6 +1,9 @@
 export type LedgerErrorCode =
   | 'DRIVER_UNAVAILABLE'
   | 'LEDGER_CLOSED'
+  | 'LEDGER_NOT_FOUND'
+  | 'LEDGER_UNREADABLE'
+  | 'READ_ONLY'
   | 'WALLET_NOT_FOUND'
   | 'WALLET_ALREADY_EXISTS'
   | 'INVALID_ARGUMENT'
@@ -31,6 +34,55 @@ export class DriverUnavailableError extends LedgerError {
 export class LedgerClosedError extends LedgerError {
   constructor(message = 'This ledger has been closed.') {
     super('LEDGER_CLOSED', message)
+  }
+}
+
+/**
+ * There is no ledger to read at the given path.
+ *
+ * Only reachable when opening read-only, which is the point: a verifier that
+ * creates what it cannot find reports on a book it just invented.
+ */
+export class LedgerNotFoundError extends LedgerError {
+  readonly path: string
+  constructor(path: string, detail: string, options?: { cause?: unknown }) {
+    super('LEDGER_NOT_FOUND', `No izi-ledger database at "${path}": ${detail}.`, options)
+    this.path = path
+  }
+}
+
+/**
+ * The file is there and cannot be read without write access.
+ *
+ * Almost always a WAL-mode ledger that was archived on its own: SQLite needs
+ * the `-shm` index to read through a WAL, and a read-only handle cannot create
+ * one. Refusing is the only safe answer — the main file alone can be missing
+ * every movement still sitting in the `-wal`, and reporting on that truncated
+ * history is the failure this whole path exists to prevent.
+ */
+export class LedgerUnreadableError extends LedgerError {
+  readonly path: string
+  constructor(path: string, options?: { cause?: unknown }) {
+    super(
+      'LEDGER_UNREADABLE',
+      `Ledger at "${path}" exists but could not be opened for reading. A WAL-mode ` +
+        `database needs "${path}-wal" and "${path}-shm" beside it to be read without ` +
+        'write access — check that they were archived along with it, and that the ' +
+        'file itself is readable.',
+      options,
+    )
+    this.path = path
+  }
+}
+
+export class ReadOnlyLedgerError extends LedgerError {
+  readonly path: string
+  constructor(path: string) {
+    super(
+      'READ_ONLY',
+      `Ledger at "${path}" was opened read-only. Reopen it without \`readonly\` to write.`,
+    )
+    this.path = path
   }
 }
 
