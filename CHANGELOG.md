@@ -22,6 +22,18 @@ because it makes existing database files unreadable.
 
   `COMMIT` now runs inside the `try`, so the existing `ROLLBACK` covers it —
   the same shape `applySchema` already used.
+- **`getBalances` silently dropped wallets whose id names an `Object.prototype`
+  member.** It accumulated into an object literal and deduplicated with
+  `walletId in out`, which reaches the prototype: a wallet called `toString`,
+  `constructor` or `hasOwnProperty` looked like one already resolved, so it was
+  left out of the result — and, because the lookup never ran, an id that does
+  not exist under one of those names did not raise `WalletNotFoundError`
+  either. A wallet called `__proto__` was lost a second way, since assigning
+  that key on a literal sets a prototype instead of a property.
+
+  Balances are now collected in a `Map` and returned through
+  `Object.fromEntries`, which defines own properties. The returned object is an
+  ordinary one with `Object.prototype`, exactly as before.
 
 ## [0.3.0] — 2026-08-25
 
