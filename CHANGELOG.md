@@ -12,6 +12,16 @@ because it makes existing database files unreadable.
 
 ### Fixed
 
+- **A failing `COMMIT` left the transaction open and the ledger unusable.** The
+  write helper ran `BEGIN IMMEDIATE` and the work inside a `try`, but `COMMIT`
+  after it — so the one statement most likely to fail for a reason the caller
+  did not cause (a full disk, an I/O error, a lost lock) escaped the rollback.
+  The error propagated with the transaction still open, and every later write
+  on that handle failed with "cannot start a transaction within a transaction"
+  until the process restarted.
+
+  `COMMIT` now runs inside the `try`, so the existing `ROLLBACK` covers it —
+  the same shape `applySchema` already used.
 - **`getBalances` silently dropped wallets whose id names an `Object.prototype`
   member.** It accumulated into an object literal and deduplicated with
   `walletId in out`, which reaches the prototype: a wallet called `toString`,

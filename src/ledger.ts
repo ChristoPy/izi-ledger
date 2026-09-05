@@ -235,9 +235,14 @@ class LedgerImpl implements Ledger {
 
   private transaction<T>(fn: () => T): T {
     this.driver.exec('BEGIN IMMEDIATE;')
-    let result: T
     try {
-      result = fn()
+      const result = fn()
+      // COMMIT belongs inside: it is the statement most likely to fail for a
+      // reason the caller did not cause — a full disk, an I/O error, a lost
+      // lock — and a failure outside the try leaves the transaction open on a
+      // handle every later write then fails against.
+      this.driver.exec('COMMIT;')
+      return result
     } catch (error) {
       try {
         this.driver.exec('ROLLBACK;')
@@ -246,8 +251,6 @@ class LedgerImpl implements Ledger {
       }
       throw error
     }
-    this.driver.exec('COMMIT;')
-    return result
   }
 
   // ------------------------------------------------------------------ wallets
