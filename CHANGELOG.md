@@ -36,6 +36,28 @@ because it makes existing database files unreadable.
   See "Reading a ledger you do not own" in the README.
 
   New error codes: `LEDGER_NOT_FOUND`, `LEDGER_UNREADABLE`, `READ_ONLY`.
+- **A failing `COMMIT` left the transaction open and the ledger unusable.** The
+  write helper ran `BEGIN IMMEDIATE` and the work inside a `try`, but `COMMIT`
+  after it — so the one statement most likely to fail for a reason the caller
+  did not cause (a full disk, an I/O error, a lost lock) escaped the rollback.
+  The error propagated with the transaction still open, and every later write
+  on that handle failed with "cannot start a transaction within a transaction"
+  until the process restarted.
+
+  `COMMIT` now runs inside the `try`, so the existing `ROLLBACK` covers it —
+  the same shape `applySchema` already used.
+- **`getBalances` silently dropped wallets whose id names an `Object.prototype`
+  member.** It accumulated into an object literal and deduplicated with
+  `walletId in out`, which reaches the prototype: a wallet called `toString`,
+  `constructor` or `hasOwnProperty` looked like one already resolved, so it was
+  left out of the result — and, because the lookup never ran, an id that does
+  not exist under one of those names did not raise `WalletNotFoundError`
+  either. A wallet called `__proto__` was lost a second way, since assigning
+  that key on a literal sets a prototype instead of a property.
+
+  Balances are now collected in a `Map` and returned through
+  `Object.fromEntries`, which defines own properties. The returned object is an
+  ordinary one with `Object.prototype`, exactly as before.
 
 ## [0.3.0] — 2026-08-25
 

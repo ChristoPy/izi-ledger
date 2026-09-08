@@ -134,4 +134,38 @@ describe('getWallet / listWallets / getBalance', () => {
     await book.createWallet('b')
     expect(await book.getBalances(['a', 'b', 'a'])).toEqual({ a: 0, b: 0 })
   })
+
+  test('getBalances treats ids that name Object.prototype members as ordinary ids', async () => {
+    const book = await openLedger()
+    // `__proto__` is the sharp one: assigning it on an object literal sets a
+    // prototype instead of a key, so the wallet disappears from the result.
+    const ids = ['toString', 'constructor', 'hasOwnProperty', '__proto__']
+    for (const id of ids) await book.createWallet(id)
+    await book.createWallet({ id: 'src', allowNegative: true })
+    await book.addMovement(
+      [
+        { walletId: 'src', amount: -30 },
+        { walletId: 'toString', amount: 10 },
+        { walletId: '__proto__', amount: 20 },
+      ],
+      'proto',
+    )
+
+    const balances = await book.getBalances(ids)
+    expect(Object.entries(balances).sort(([a], [b]) => a.localeCompare(b))).toEqual([
+      ['__proto__', 20],
+      ['constructor', 0],
+      ['hasOwnProperty', 0],
+      ['toString', 10],
+    ])
+    // Own properties on an ordinary object, not a mutated prototype.
+    expect(Object.hasOwn(balances, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(balances)).toBe(Object.prototype)
+  })
+
+  test('getBalances still throws for an unknown id that names a prototype member', async () => {
+    const book = await openLedger()
+    await book.createWallet('a')
+    await expect(book.getBalances(['a', 'valueOf'])).rejects.toThrow(WalletNotFoundError)
+  })
 })
