@@ -196,6 +196,29 @@ Exits 0 when it verifies, 1 when it does not, 2 on a usage error. `--json` for
 machines. Each row reports its own check, so a broken chain does not make the
 signatures look forged.
 
+### Reading a ledger you do not own
+
+`audit()` and `izi-ledger audit` open the file **read-only**, and `ledger()`
+takes the same `readonly: true` for anything else that only reads. A read-only
+handle takes no write lock, throws `ReadOnlyLedgerError` on any write, and never
+leaves anything behind on a file it refused to read.
+
+The part that matters for a CI gate: a path with no ledger at it is
+`LEDGER_NOT_FOUND`, not a new empty book. Read-write, opening creates the file
+and mints it a fresh `ledgerId`, and an empty ledger passes every check there
+is — so a typo in the path verifies, loudly and falsely.
+
+**Archiving a ledger means copying its sidecars too.** SQLite reads through a
+WAL using the `-shm` index, so `ledger.db` copied away from a `-wal` that still
+held the book is `LEDGER_UNREADABLE` — some SQLite builds refuse to open it at
+all, others open it and find an empty file, and both get that same answer. The
+refusal is the point: the main file can be missing every movement still sitting
+in the `-wal`, and a verifier must not report on a history it can only partly
+see. Copy `ledger.db`, `ledger.db-wal` and `ledger.db-shm` together and the
+read-only path reads the whole book. A ledger whose `-wal` was checkpointed away
+by a clean close reads on its own, because then the main file *is* the whole
+book.
+
 Where to publish anchors, roughly in order of what they buy you:
 
 | destination | insider can rewrite? | auditor verifies alone? |
@@ -274,6 +297,7 @@ const book = await ledger(options?: string | LedgerOptions)
 | `defaultCurrency` | none | currency wallets inherit; without it every wallet must name its own |
 | `cacheSize` | `10_000` | wallets kept in the balance cache; `0` disables |
 | `busyTimeoutMs` | `5_000` | wait on a locked database before failing |
+| `readonly` | `false` | open without write access; see [Reading a ledger you do not own](#reading-a-ledger-you-do-not-own) |
 | `verifyOnOpen` | `false` | verify the whole chain at startup |
 | `now` | `Date.now` | clock injection for deterministic tests |
 | `signer` | none | signs checkpoints as they are produced; see [Signing](#signing) |
@@ -346,7 +370,8 @@ Every error extends `LedgerError` and carries a stable `code`:
 `WALLET_NOT_FOUND` · `WALLET_ALREADY_EXISTS` · `INVALID_AMOUNT` ·
 `INVALID_ARGUMENT` · `UNBALANCED_MOVEMENT` · `CURRENCY_MISMATCH` ·
 `INSUFFICIENT_FUNDS` · `IDEMPOTENCY_CONFLICT` · `INTEGRITY_ERROR` ·
-`SCHEMA_VERSION_MISMATCH` · `LEDGER_CLOSED` · `DRIVER_UNAVAILABLE`
+`SCHEMA_VERSION_MISMATCH` · `LEDGER_CLOSED` · `DRIVER_UNAVAILABLE` ·
+`LEDGER_NOT_FOUND` · `LEDGER_UNREADABLE` · `READ_ONLY`
 
 ```ts
 import { InsufficientFundsError } from 'izi-ledger'
